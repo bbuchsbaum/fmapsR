@@ -1,0 +1,39 @@
+Package: fmapsR
+Type: Package
+Title: Functional Maps for Geometric and Multidimensional Data
+Version: 0.0.0.9000
+Authors@R: c(
+    person(
+      given = "fmapsR",
+      family = "Maintainers",
+      role = c("aut", "cre"),
+      email = "maintainers@example.com"
+    )
+  )
+Description: High-level, domain-agnostic functional maps in R with support
+    for pairwise mapping, multi-dataset synchronization, and consensus
+    representations.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Depends:
+    R (>= 4.2)
+Imports:
+    Matrix,
+    Rcpp,
+    RSpectra
+LinkingTo:
+    Rcpp,
+    RcppArmadillo
+Suggests:
+    bench,
+    devtools,
+    knitr,
+    rmarkdown,
+    roxygen2,
+    testthat (>= 3.0.0)
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+URL: https://github.com/bbuchsbaum/fmapsR
+BugReports: https://github.com/bbuchsbaum/fmapsR/issues
+RoxygenNote: 7.3.3

@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  r-tests:
+    name: R tests (${{ matrix.os }}, R ${{ matrix.r }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            r: "release"
+          - os: macos-latest
+            r: "release"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ matrix.r }}
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          cache-version: 2
+          dependencies: '"hard"'
+          extra-packages: |
+            any::testthat
+            any::pkgload
+
+      - name: Run testthat
+        run: Rscript -e "testthat::test_local('.', reporter = 'summary')"
+
+  benchmark-smoke:
+    name: Benchmark smoke (ubuntu)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "release"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          cache-version: 2
+          dependencies: '"hard"'
+          extra-packages: |
+            any::pkgload
+            any::bench
+
+      - name: Install Python benchmark deps
+        run: python -m pip install numpy scipy scikit-learn tqdm
+
+      - name: Run pairwise benchmark harness
+        run: Rscript tools/benchmark_pairwise.R --r-runs 3 --py-runs 3 --target-ratio 0.30 --stability-margin 0.02
+
+      - name: Validate benchmark report fields
+        run: |
+          test -f benchmarks/pairwise/pairwise-benchmark-latest.md
+          grep -q "Runtime improvement ratio:" benchmarks/pairwise/pairwise-benchmark-latest.md
+          grep -q "Stable target met:" benchmarks/pairwise/pairwise-benchmark-latest.md
+          grep -q "Stability decision:" benchmarks/pairwise/pairwise-benchmark-latest.md
+          grep -q "Baseline available: TRUE" benchmarks/pairwise/pairwise-benchmark-latest.md
+
+      - name: Run network benchmark smoke harness
+        run: Rscript tools/benchmark_network_sync.R --scales 10 --enforce-regression
+
+      - name: Validate network benchmark report fields
+        run: |
+          test -f benchmarks/network-sync/network-sync-benchmark-latest.md
+          grep -q "cycle_reduction_ratio" benchmarks/network-sync/network-sync-benchmark-latest.md
+          grep -q "Overall regression pass: TRUE" benchmarks/network-sync/network-sync-benchmark-latest.md
+
+      - name: Run parity benchmark smoke harness
+        run: Rscript tools/benchmark_parity.R --scenarios easy,noisy --r-runs 1 --py-runs 1
+
+      - name: Validate parity benchmark report fields
+        run: |
+          test -f benchmarks/parity/parity-benchmark-latest.md
+          grep -q "Scenario Results" benchmarks/parity/parity-benchmark-latest.md
+          grep -q "Baseline available scenarios:" benchmarks/parity/parity-benchmark-latest.md

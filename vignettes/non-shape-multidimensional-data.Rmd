@@ -1,0 +1,63 @@
+---
+title: "Functional Maps for Non-Shape Multidimensional Data"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Functional Maps for Non-Shape Multidimensional Data}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+This example treats each sample as a multidimensional observation vector rather than a mesh vertex.
+
+```{r}
+library(fmapsR)
+set.seed(123)
+
+make_multidomain <- function(seed, n = 30, p = 12, k = 8) {
+  set.seed(seed)
+  X <- matrix(rnorm(n * p), nrow = n, ncol = p)
+
+  # Choose either covariance or kNN-laplacian operator families.
+  operator <- fm_operator(X, method = "knn_laplacian", k = 7)
+
+  fm_basis(
+    fm_domain_generic(n_samples = n, data = X, operator = operator),
+    k = k,
+    solver = "base",
+    cache = FALSE
+  )
+}
+
+A <- make_multidomain(1)
+B <- make_multidomain(2)
+
+# Validation checks for non-shape operators
+stopifnot(
+  all(dim(A$operator) == c(A$n_samples, A$n_samples)),
+  max(abs(A$operator - t(A$operator))) < 1e-8
+)
+
+desc_A <- A$data
+desc_B <- B$data
+
+fit <- fm_match(A, B, descriptors = list(source = desc_A, target = desc_B), penalties = list(descr = 1, lap = 1e-3, comm = 0.2), optimizer = "cg", cg_maxit = 6)
+fit <- fm_refine(fit, method = "icp", nit = 3)
+
+feature_A <- A$data[, 1]
+feature_B_hat <- fm_transfer(fit, feature_A)
+
+c(transfer_mse = mean((feature_B_hat - B$data[, 1])^2), p2p_cardinality = length(as_p2p(fit)))
+```
+
+## Takeaway
+
+The API does not assume shapes. As long as you define:
+
+1. Sample-wise descriptors (`n_samples x p`).
+2. A basis-friendly operator (`n_samples x n_samples`).
+
+you can run the full functional map pipeline.

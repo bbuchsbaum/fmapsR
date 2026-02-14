@@ -1,0 +1,41 @@
+---
+title: "Getting Started with fmapsR"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting Started with fmapsR}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+`fmapsR` provides a high-level functional maps interface that is not restricted to shape meshes. The same API is used for:
+
+1. Pairwise functional map estimation.
+2. Multi-dataset synchronization and consensus maps.
+3. Generic multidimensional datasets (time-series, tensors, tabular embeddings).
+
+## Core API surface
+
+```{r}
+library(fmapsR)
+
+c(
+  "fm_domain()", "fm_basis()", "fm_match()", "fm_refine()",
+  "fm_network()", "fm_sync()", "fm_consensus()", "fm_transfer()"
+)
+```
+
+## Vignettes in this package
+
+1. `pairwise-functional-maps`: concise pairwise map workflow.
+2. `multi-dataset-sync-consensus`: synchronization + consensus across multiple datasets.
+3. `non-shape-multidimensional-data`: functional maps on generic multidimensional data.
+
+## Package metadata
+
+```{r}
+fm_package_info()
+```

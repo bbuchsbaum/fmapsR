@@ -1,0 +1,74 @@
+---
+title: "Multi-Dataset Synchronization and Consensus"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Multi-Dataset Synchronization and Consensus}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+```{r}
+library(fmapsR)
+set.seed(42)
+
+make_domain <- function(seed, n = 20, k = 6) {
+  set.seed(seed)
+  latent <- matrix(rnorm(n * 4), nrow = n, ncol = 4)
+  fm_basis(
+    fm_domain_generic(n_samples = n, data = latent, operator = diag(seq_len(n))),
+    k = k,
+    solver = "base",
+    cache = FALSE
+  )
+}
+
+d1 <- make_domain(101)
+d2 <- make_domain(102)
+d3 <- make_domain(103)
+
+desc1 <- d1$data
+desc2 <- d1$data + matrix(rnorm(length(d1$data), sd = 0.03), nrow = nrow(d1$data))
+desc3 <- d1$data + matrix(rnorm(length(d1$data), sd = 0.04), nrow = nrow(d1$data))
+```
+
+## End-to-end network sync workflow
+
+The core workflow below uses **10 lines** of API calls.
+
+```{r}
+fit12 <- fm_refine(fm_match(d1, d2, descriptors = list(source = desc1, target = desc2), optimizer = "cg", cg_maxit = 3), method = "icp", nit = 2)
+fit23 <- fm_refine(fm_match(d2, d3, descriptors = list(source = desc2, target = desc3), optimizer = "cg", cg_maxit = 3), method = "icp", nit = 2)
+fit31 <- fm_refine(fm_match(d3, d1, descriptors = list(source = desc3, target = desc1), optimizer = "cg", cg_maxit = 3), method = "icp", nit = 2)
+net <- fm_network(list(a = d1, b = d2, c = d3), directed = TRUE)
+net <- fm_network_add_map(net, "a", "b", fit12)
+net <- fm_network_add_map(net, "b", "c", fit23)
+net <- fm_network_add_map(net, "c", "a", fit31)
+synced <- fm_sync(net, mode = "cycle", nit = 10)
+consensus <- fm_consensus(synced, method = "latent_clb")
+fm_network_report(net, consensus$network)
+```
+
+## Notes
+
+- `fm_sync()` reduces cycle inconsistencies across maps.
+- `fm_consensus(method = "latent_clb")` refines synchronized maps with latent-basis optimization.
+- The same pattern scales to larger graph topologies.
+
+## Batch Controls for Larger Collections
+
+For bigger runs, use `fm_network_match()` to batch edges and stream descriptors:
+
+```{r, eval = FALSE}
+net2 <- fm_network_match(
+  domains = list(a = d1, b = d2, c = d3),
+  descriptors = list(a = desc1, b = desc2, c = desc3),
+  edges = c("a->b", "b->c", "c->a"),
+  pair_batch_size = 2,
+  descriptor_batch_size = 8,
+  optimizer = "cg"
+)
+```
