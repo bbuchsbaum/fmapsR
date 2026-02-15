@@ -1,7 +1,11 @@
-^docs$
-^pyFM$
-^scripts$
-^tools$
+^docs($|/)
+^\.github($|/)
+^\.venv-bench($|/)
+^pyFM($|/)
+^scripts($|/)
+^tools($|/)
 ^README\.md$
-^doc$
-^Meta$
+^doc($|/)
+^Meta($|/)
+^benchmarks($|/)
+^tmp-.*\.out$
