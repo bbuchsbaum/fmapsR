@@ -49,3 +49,19 @@ benchmark_network_defaults <- function() {
 benchmark_network_reference_targets <- function() {
   c("10" = 0.60, "25" = 0.55, "50" = 0.50)
 }
+
+benchmark_parity_gate_thresholds <- function() {
+  list(
+    required_scenarios = c("easy", "noisy"),
+    accuracy_delta_min = c(
+      easy = -0.10,
+      noisy = -0.15,
+      partial = -0.20
+    ),
+    geodesic_norm_delta_max = c(
+      easy = 0.08,
+      noisy = 0.15,
+      partial = 0.20
+    )
+  )
+}

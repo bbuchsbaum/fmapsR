@@ -163,8 +163,14 @@ def run_once(
     scale = float(np.mean(scale_vals)) if scale_vals.size > 0 else 1.0
     geodesic_norm = geodesic_mean / max(scale, 1e-12)
 
+    gram = fm_icp.T @ fm_icp
+    ident = np.eye(gram.shape[0], dtype=gram.dtype)
+
     return {
         "runtime_sec": elapsed,
+        "objective": float(out[1]),
+        "map_fro_norm": float(np.linalg.norm(fm_icp, ord="fro")),
+        "map_orth_resid": float(np.linalg.norm(gram - ident, ord="fro")),
         "accuracy": accuracy,
         "geodesic_mean": geodesic_mean,
         "geodesic_normalized_mean": geodesic_norm,
@@ -215,6 +221,9 @@ def main():
             {
                 "status": "ok",
                 "runtime_sec": f"{out['runtime_sec']:.9f}",
+                "objective": f"{out['objective']:.9f}",
+                "map_fro_norm": f"{out['map_fro_norm']:.9f}",
+                "map_orth_resid": f"{out['map_orth_resid']:.9f}",
                 "accuracy": f"{out['accuracy']:.9f}",
                 "geodesic_mean": f"{out['geodesic_mean']:.9f}",
                 "geodesic_normalized_mean": f"{out['geodesic_normalized_mean']:.9f}",

@@ -94,5 +94,10 @@ jobs:
       - name: Validate parity benchmark report fields
         run: |
           test -f benchmarks/parity/parity-benchmark-latest.md
+          test -f benchmarks/parity/parity-benchmark-latest.rds
           grep -q "Scenario Results" benchmarks/parity/parity-benchmark-latest.md
           grep -q "Baseline available scenarios:" benchmarks/parity/parity-benchmark-latest.md
+          grep -q "Median objective relative gap" benchmarks/parity/parity-benchmark-latest.md
+
+      - name: Enforce parity quality gate
+        run: Rscript tools/check_parity_gate.R --report benchmarks/parity/parity-benchmark-latest.rds --required easy,noisy

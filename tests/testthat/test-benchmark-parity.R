@@ -73,6 +73,9 @@ test_that("parity report writer emits markdown and rds artifacts", {
     r_runtime_sec = c(0.1, 0.2),
     py_runtime_sec = c(0.2, 0.3),
     runtime_improvement_ratio = c(0.5, 0.333),
+    objective_rel_gap = c(0.1, 0.2),
+    map_fro_norm_delta = c(0.01, -0.02),
+    map_orth_resid_delta = c(0.005, -0.004),
     r_accuracy = c(0.9, 0.8),
     py_accuracy = c(0.85, 0.75),
     accuracy_delta = c(0.05, 0.05),
@@ -103,7 +106,10 @@ test_that("parity report writer emits markdown and rds artifacts", {
       n_baseline_available = 2L,
       median_runtime_improvement_ratio = 0.4165,
       mean_accuracy_delta = 0.05,
-      mean_geodesic_norm_delta = -0.03
+      mean_geodesic_norm_delta = -0.03,
+      median_objective_rel_gap = 0.15,
+      mean_map_fro_norm_delta = -0.005,
+      mean_map_orth_resid_delta = 0.0005
     )
   )
 
@@ -111,11 +117,13 @@ test_that("parity report writer emits markdown and rds artifacts", {
   outputs <- env$parity_write_report(report, output_dir = out_dir)
 
   expect_true(file.exists(outputs$rds))
+  expect_true(file.exists(outputs$latest_rds))
   expect_true(file.exists(outputs$markdown))
 
   md <- readLines(outputs$markdown, warn = FALSE)
   expect_true(any(grepl("Scenario Results", md, fixed = TRUE)))
   expect_true(any(grepl("Median runtime improvement ratio", md, fixed = TRUE)))
+  expect_true(any(grepl("Median objective relative gap", md, fixed = TRUE)))
 })
 
 test_that("pyFM parity runner is skip-safe when dependencies are unavailable", {
@@ -128,6 +136,9 @@ test_that("pyFM parity runner is skip-safe when dependencies are unavailable", {
   }
 
   expect_true(is.finite(res$runtime_sec))
+  expect_true(is.finite(res$objective))
+  expect_true(is.finite(res$map_fro_norm))
+  expect_true(is.finite(res$map_orth_resid))
   expect_true(is.finite(res$accuracy))
   expect_true(is.finite(res$geodesic_normalized_mean))
 })
@@ -140,12 +151,23 @@ test_that("compare_scenario computes expected delta fields and unavailable basel
     runtime_sec = 0.2,
     runtime_match_sec = 0.1,
     runtime_refine_sec = 0.1,
+    objective = 10,
+    map_fro_norm = 2,
+    map_orth_resid = 0.05,
     accuracy = 0.9,
     geodesic_normalized_mean = 0.05,
     kernel_backend = "cpp",
     kernel_backend_mixed = FALSE
   )
-  py_ok <- list(status = "ok", runtime_sec = 0.4, accuracy = 0.8, geodesic_normalized_mean = 0.07)
+  py_ok <- list(
+    status = "ok",
+    runtime_sec = 0.4,
+    objective = 8,
+    map_fro_norm = 1.9,
+    map_orth_resid = 0.08,
+    accuracy = 0.8,
+    geodesic_normalized_mean = 0.07
+  )
   py_missing <- list(status = "error", error = "python_not_found")
 
   row_ok <- env$compare_scenario("easy", cfg, r_res, py_ok)
@@ -153,6 +175,9 @@ test_that("compare_scenario computes expected delta fields and unavailable basel
   expect_equal(row_ok$runtime_improvement_ratio, 0.5)
   expect_equal(row_ok$accuracy_delta, 0.1)
   expect_equal(row_ok$geodesic_norm_delta, -0.02)
+  expect_equal(row_ok$objective_rel_gap, 0.25)
+  expect_equal(row_ok$map_fro_norm_delta, 0.1)
+  expect_equal(row_ok$map_orth_resid_delta, -0.03)
   expect_identical(row_ok$note, "ok")
 
   row_missing <- env$compare_scenario("easy", cfg, r_res, py_missing)
@@ -168,12 +193,23 @@ test_that("compare_scenario marks runtime non-comparable on R backend", {
     runtime_sec = 0.2,
     runtime_match_sec = 0.1,
     runtime_refine_sec = 0.1,
+    objective = 10,
+    map_fro_norm = 2,
+    map_orth_resid = 0.05,
     accuracy = 0.9,
     geodesic_normalized_mean = 0.05,
     kernel_backend = "r",
     kernel_backend_mixed = FALSE
   )
-  py_ok <- list(status = "ok", runtime_sec = 0.4, accuracy = 0.8, geodesic_normalized_mean = 0.07)
+  py_ok <- list(
+    status = "ok",
+    runtime_sec = 0.4,
+    objective = 8,
+    map_fro_norm = 1.9,
+    map_orth_resid = 0.08,
+    accuracy = 0.8,
+    geodesic_normalized_mean = 0.07
+  )
 
   row <- env$compare_scenario("easy", cfg, r_res, py_ok)
   expect_true(isTRUE(row$baseline_available))

@@ -278,11 +278,16 @@ run_r_parity_once <- function(
     kernel_backend = kernel_backend
   )
   t_match <- proc.time()[["elapsed"]] - t0
+  match_objective <- as.numeric(fit$diagnostics$total_objective)
 
   t1 <- proc.time()[["elapsed"]]
   fit <- fm_refine(fit, method = "icp", nit = refine_nit)
   t_refine <- proc.time()[["elapsed"]] - t1
   t_total <- t_match + t_refine
+
+  C <- as.matrix(fit$C)
+  gram <- t(C) %*% C
+  I <- diag(1, nrow = nrow(gram), ncol = ncol(gram))
 
   p2p <- as_p2p(fit)
   metrics <- fm_fit_metrics(
@@ -298,6 +303,9 @@ run_r_parity_once <- function(
     runtime_sec = t_total,
     runtime_match_sec = t_match,
     runtime_refine_sec = t_refine,
+    objective = match_objective,
+    map_fro_norm = norm(C, type = "F"),
+    map_orth_resid = norm(gram - I, type = "F"),
     accuracy = mean(p2p[idx] == prob$truth[idx]),
     geodesic_mean = mean(metrics$geodesic$per_point[idx], na.rm = TRUE),
     geodesic_normalized_mean = mean(metrics$geodesic$per_point[idx], na.rm = TRUE) / metrics$geodesic$scale,
@@ -357,6 +365,9 @@ run_r_parity <- function(
     runtime_sec = med("runtime_sec"),
     runtime_match_sec = med("runtime_match_sec"),
     runtime_refine_sec = med("runtime_refine_sec"),
+    objective = med("objective"),
+    map_fro_norm = med("map_fro_norm"),
+    map_orth_resid = med("map_orth_resid"),
     accuracy = med("accuracy"),
     geodesic_mean = med("geodesic_mean"),
     geodesic_normalized_mean = med("geodesic_normalized_mean"),
@@ -430,6 +441,9 @@ run_pyfm_parity <- function(cfg, seed = 42L, n_runs = 3L, maxit = 120L, icp_nit 
     status = "ok",
     n_runs = n_runs,
     runtime_sec = med("runtime_sec"),
+    objective = med("objective"),
+    map_fro_norm = med("map_fro_norm"),
+    map_orth_resid = med("map_orth_resid"),
     accuracy = med("accuracy"),
     geodesic_mean = med("geodesic_mean"),
     geodesic_normalized_mean = med("geodesic_normalized_mean"),
@@ -444,12 +458,22 @@ compare_scenario <- function(name, cfg, r_res, py_res) {
   runtime_comparable <- baseline_available && identical(r_backend, "cpp")
 
   py_runtime <- parity_numeric_or_na(py_res$runtime_sec)
+  py_objective <- parity_numeric_or_na(py_res$objective)
+  py_map_fro <- parity_numeric_or_na(py_res$map_fro_norm)
+  py_map_orth <- parity_numeric_or_na(py_res$map_orth_resid)
   py_acc <- parity_numeric_or_na(py_res$accuracy)
   py_geod_n <- parity_numeric_or_na(py_res$geodesic_normalized_mean)
 
   runtime_improvement <- if (runtime_comparable) (py_runtime - r_res$runtime_sec) / py_runtime else NA_real_
   accuracy_delta <- if (baseline_available && is.finite(py_acc)) r_res$accuracy - py_acc else NA_real_
   geodesic_norm_delta <- if (baseline_available && is.finite(py_geod_n)) r_res$geodesic_normalized_mean - py_geod_n else NA_real_
+  objective_rel_gap <- if (baseline_available && is.finite(py_objective)) {
+    abs(r_res$objective - py_objective) / max(abs(py_objective), 1e-12)
+  } else {
+    NA_real_
+  }
+  map_fro_norm_delta <- if (baseline_available && is.finite(py_map_fro)) r_res$map_fro_norm - py_map_fro else NA_real_
+  map_orth_resid_delta <- if (baseline_available && is.finite(py_map_orth)) r_res$map_orth_resid - py_map_orth else NA_real_
 
   note <- if (!baseline_available) {
     paste("pyFM unavailable:", parity_or_else(py_res$error, "unknown"))
@@ -471,18 +495,27 @@ compare_scenario <- function(name, cfg, r_res, py_res) {
     r_runtime_sec = as.numeric(r_res$runtime_sec),
     r_runtime_match_sec = as.numeric(r_res$runtime_match_sec),
     r_runtime_refine_sec = as.numeric(r_res$runtime_refine_sec),
+    r_objective = as.numeric(r_res$objective),
+    r_map_fro_norm = as.numeric(r_res$map_fro_norm),
+    r_map_orth_resid = as.numeric(r_res$map_orth_resid),
     r_kernel_backend = as.character(r_backend),
     r_kernel_backend_mixed = isTRUE(r_res$kernel_backend_mixed),
     r_accuracy = as.numeric(r_res$accuracy),
     r_geodesic_norm = as.numeric(r_res$geodesic_normalized_mean),
     py_status = as.character(py_res$status),
     py_runtime_sec = py_runtime,
+    py_objective = py_objective,
+    py_map_fro_norm = py_map_fro,
+    py_map_orth_resid = py_map_orth,
     py_accuracy = py_acc,
     py_geodesic_norm = py_geod_n,
     runtime_improvement_ratio = runtime_improvement,
     runtime_comparable = runtime_comparable,
     accuracy_delta = accuracy_delta,
     geodesic_norm_delta = geodesic_norm_delta,
+    objective_rel_gap = objective_rel_gap,
+    map_fro_norm_delta = map_fro_norm_delta,
+    map_orth_resid_delta = map_orth_resid_delta,
     baseline_available = baseline_available,
     note = note,
     stringsAsFactors = FALSE
@@ -494,9 +527,11 @@ parity_write_report <- function(report, output_dir = "benchmarks/parity") {
 
   stamp <- format(Sys.time(), "%Y%m%d-%H%M%S")
   rds_path <- file.path(output_dir, paste0("parity-benchmark-", stamp, ".rds"))
+  latest_rds_path <- file.path(output_dir, "parity-benchmark-latest.rds")
   md_path <- file.path(output_dir, "parity-benchmark-latest.md")
 
   saveRDS(report, rds_path)
+  saveRDS(report, latest_rds_path)
 
   rows <- report$scenario_results
   lines <- c(
@@ -545,15 +580,43 @@ parity_write_report <- function(report, output_dir = "benchmarks/parity") {
   lines <- c(
     lines,
     "",
+    "## Objective/Map Parity",
+    "| scenario | r_objective | py_objective | objective_rel_gap | r_map_fro_norm | py_map_fro_norm | map_fro_norm_delta | r_map_orth_resid | py_map_orth_resid | map_orth_resid_delta |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+  )
+
+  for (i in seq_len(nrow(rows))) {
+    r <- rows[i, , drop = FALSE]
+    lines <- c(lines, sprintf(
+      "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |",
+      r$scenario,
+      as.character(r$r_objective),
+      as.character(r$py_objective),
+      as.character(r$objective_rel_gap),
+      as.character(r$r_map_fro_norm),
+      as.character(r$py_map_fro_norm),
+      as.character(r$map_fro_norm_delta),
+      as.character(r$r_map_orth_resid),
+      as.character(r$py_map_orth_resid),
+      as.character(r$map_orth_resid_delta)
+    ))
+  }
+
+  lines <- c(
+    lines,
+    "",
     "## Aggregates",
     sprintf("- Median runtime improvement ratio (available scenarios): %s", as.character(report$summary$median_runtime_improvement_ratio)),
     sprintf("- Mean accuracy delta (R - pyFM): %s", as.character(report$summary$mean_accuracy_delta)),
     sprintf("- Mean geodesic normalized delta (R - pyFM): %s", as.character(report$summary$mean_geodesic_norm_delta)),
+    sprintf("- Median objective relative gap: %s", as.character(report$summary$median_objective_rel_gap)),
+    sprintf("- Mean map Frobenius norm delta (R - pyFM): %s", as.character(report$summary$mean_map_fro_norm_delta)),
+    sprintf("- Mean map orthogonality residual delta (R - pyFM): %s", as.character(report$summary$mean_map_orth_resid_delta)),
     ""
   )
 
   writeLines(lines, md_path)
-  list(rds = rds_path, markdown = md_path)
+  list(rds = rds_path, latest_rds = latest_rds_path, markdown = md_path)
 }
 
 main <- function() {
@@ -624,7 +687,10 @@ main <- function() {
       n_baseline_available = sum(available),
       median_runtime_improvement_ratio = if (any(available)) stats::median(scenario_df$runtime_improvement_ratio[available], na.rm = TRUE) else NA_real_,
       mean_accuracy_delta = if (any(available)) mean(scenario_df$accuracy_delta[available], na.rm = TRUE) else NA_real_,
-      mean_geodesic_norm_delta = if (any(available)) mean(scenario_df$geodesic_norm_delta[available], na.rm = TRUE) else NA_real_
+      mean_geodesic_norm_delta = if (any(available)) mean(scenario_df$geodesic_norm_delta[available], na.rm = TRUE) else NA_real_,
+      median_objective_rel_gap = if (any(available)) stats::median(scenario_df$objective_rel_gap[available], na.rm = TRUE) else NA_real_,
+      mean_map_fro_norm_delta = if (any(available)) mean(scenario_df$map_fro_norm_delta[available], na.rm = TRUE) else NA_real_,
+      mean_map_orth_resid_delta = if (any(available)) mean(scenario_df$map_orth_resid_delta[available], na.rm = TRUE) else NA_real_
     )
   )
 
@@ -632,6 +698,7 @@ main <- function() {
 
   cat("Parity benchmark complete\n")
   cat("RDS:", outputs$rds, "\n")
+  cat("Latest RDS:", outputs$latest_rds, "\n")
   cat("Summary:", outputs$markdown, "\n")
   cat(sprintf("Baseline available scenarios: %d/%d\n", report$summary$n_baseline_available, report$summary$n_scenarios))
 }
