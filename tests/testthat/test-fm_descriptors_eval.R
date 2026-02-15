@@ -153,3 +153,107 @@ test_that("coverage metrics obey bounds and entropy extremes", {
   expect_true(cov_weighted$weighted_ratio > 0)
   expect_true(cov_weighted$weighted_ratio < 1)
 })
+
+test_that("descriptor helper validations and edge branches are covered", {
+  d <- make_descriptor_domain(n = 8, k = 6)
+
+  expect_error(operator_eigenpairs(list()), "must inherit from `fm_domain`")
+  expect_error(operator_eigenpairs(fm_domain_generic(5)), "Domain basis is required")
+
+  expect_error(infer_hks_time_grid(1:5, n_times = 0), "positive scalar")
+  expect_error(infer_hks_time_grid(c(0, 0, 1), n_times = 2), "at least two positive eigenvalues")
+  expect_error(infer_hks_time_grid(1:5, n_times = 2, time_range = c(-1, 2)), "two positive values")
+
+  expect_error(infer_wks_energy_grid(1:5, n_energies = 0), "positive scalar")
+  expect_error(infer_wks_energy_grid(c(1), n_energies = 2), "at least two finite log-eigenvalues")
+  expect_error(infer_wks_energy_grid(1:5, n_energies = 2, energy_range = c(1, NA)), "two finite values")
+
+  flat <- matrix(0, nrow = 4, ncol = 2)
+  expect_equal(normalize_descriptor_columns(flat), flat)
+
+  eig <- operator_eigenpairs(d)
+  lm_single <- landmark_spectral_response(eig$vectors, coeff = rep(1, ncol(eig$vectors)), landmarks = 1L)
+  expect_equal(dim(lm_single), c(d$n_samples, 1L))
+})
+
+test_that("descriptor constructors validate landmarks and sigma", {
+  d <- make_descriptor_domain(n = 8, k = 6)
+
+  expect_error(fm_descriptor_hks(d, n_times = 3, landmarks = 0), "valid sample indices")
+  expect_error(fm_descriptor_wks(d, n_energies = 3, landmarks = 9), "valid sample indices")
+  expect_error(fm_descriptor_wks(d, n_energies = 3, sigma = 0), "positive scalar")
+
+  hks_raw <- fm_descriptor_hks(d, n_times = 3, scaled = FALSE)
+  expect_equal(dim(hks_raw), c(8L, 3L))
+})
+
+test_that("distance and graph utilities validate malformed inputs", {
+  expect_error(graph_shortest_paths(matrix(1, nrow = 2, ncol = 3)), "must be square")
+  expect_error(fm_distance_matrix(list()), "must inherit from `fm_domain`")
+
+  d_generic <- fm_domain_generic(n_samples = 3, data = list(a = 1))
+  expect_error(
+    fm_distance_matrix(d_generic, method = "euclidean"),
+    "requires matrix-like sample coordinates"
+  )
+
+  d_graph_no_adj <- fm_domain_generic(n_samples = 3)
+  expect_error(
+    fm_distance_matrix(d_graph_no_adj, method = "graph_shortest"),
+    "No adjacency available"
+  )
+
+  faces_bad <- matrix(c(1, 2, 5), ncol = 3)
+  A_mesh <- mesh_face_adjacency(4, faces_bad)
+  expect_equal(sum(A_mesh), 0)
+  expect_null(mesh_face_adjacency(4, NULL))
+  expect_null(mesh_face_adjacency(4, matrix(1:8, ncol = 4)))
+
+  expect_equal(normalize_metric_scale(matrix(c(0, Inf, Inf, 0), nrow = 2)), 1)
+})
+
+test_that("evaluation validators catch incompatible shapes and ranges", {
+  D <- as.matrix(stats::dist(matrix(1:4, ncol = 1)))
+  A <- matrix(0, nrow = 4, ncol = 4)
+  A[cbind(1:3, 2:4)] <- 1
+  A[cbind(2:4, 1:3)] <- 1
+
+  expect_error(validate_p2p_pair(1:3, 1:2), "same length")
+  expect_error(validate_p2p_pair(1:4, c(1, 2, 3, 5), n_source = 4), "out of source range")
+
+  expect_error(fm_eval_geodesic_error(1:4, 1:4, matrix(1, 2, 3)), "must be square")
+  expect_error(fm_eval_continuity(1:4, matrix(1, 2, 3), A), "must be square")
+  expect_error(fm_eval_continuity(1:4, D, matrix(1, 2, 3)), "must be square")
+  expect_error(fm_eval_continuity(1:3, D, A), "length must match")
+  expect_error(fm_eval_continuity(c(1, 2, 3, 5), D, A), "out of source range")
+
+  A_empty <- matrix(0, nrow = 4, ncol = 4)
+  cont_empty <- fm_eval_continuity(1:4, D, A_empty)
+  expect_identical(cont_empty$n_edges, 0L)
+  expect_true(is.na(cont_empty$mean))
+
+  expect_error(fm_eval_coverage(1:4, n_source = 0), "positive scalar")
+  expect_error(fm_eval_coverage(c(1, 5), n_source = 4), "out of source range")
+  expect_error(
+    fm_eval_coverage(c(1, 1), n_source = 4, weights = c(0, 0, 0, 0)),
+    "must be non-negative with at least one positive value"
+  )
+})
+
+test_that("auto adjacency and fit metric entry points cover fallback branches", {
+  expect_null(auto_target_adjacency(list()))
+
+  A <- matrix(0, nrow = 4, ncol = 4)
+  A[cbind(1:3, 2:4)] <- 1
+  A[cbind(2:4, 1:3)] <- 1
+  d_graph <- fm_domain_graph(A)
+  expect_equal(auto_target_adjacency(d_graph), A)
+
+  verts <- matrix(runif(12), ncol = 3)
+  faces <- matrix(c(1, 2, 3, 2, 3, 4), ncol = 3, byrow = TRUE)
+  d_mesh <- fm_domain_mesh(verts, faces = faces)
+  A_mesh <- auto_target_adjacency(d_mesh)
+  expect_equal(dim(A_mesh), c(4L, 4L))
+
+  expect_error(fm_fit_metrics(list()), "`fit` must inherit")
+})

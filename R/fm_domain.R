@@ -47,17 +47,17 @@ normalize_measure <- function(measure, n_samples) {
     return(rep(1, n_samples))
   }
 
-  if (is.numeric(measure)) {
-    if (length(measure) != n_samples) {
-      stop("Numeric `measure` must have length `n_samples`", call. = FALSE)
-    }
-    return(measure)
-  }
-
   if (is.matrix(measure) || inherits(measure, "Matrix")) {
     dims <- dim(measure)
     if (length(dims) != 2 || any(dims != c(n_samples, n_samples))) {
       stop("Matrix `measure` must be `n_samples x n_samples`", call. = FALSE)
+    }
+    return(measure)
+  }
+
+  if (is.numeric(measure) && is.null(dim(measure))) {
+    if (length(measure) != n_samples) {
+      stop("Numeric `measure` must have length `n_samples`", call. = FALSE)
     }
     return(measure)
   }
@@ -299,7 +299,7 @@ fm_measure_matrix <- function(domain) {
     stop("`domain` must inherit from `fm_domain`", call. = FALSE)
   }
 
-  if (is.numeric(domain$measure)) {
+  if (is.numeric(domain$measure) && is.null(dim(domain$measure))) {
     return(Matrix::Diagonal(x = domain$measure))
   }
 

@@ -82,9 +82,7 @@ prepare_weighted_ls_solver <- function(X, weights = NULL) {
 extract_measure_weights <- function(domain, indices = NULL) {
   m <- domain$measure
 
-  if (is.numeric(m)) {
-    w <- m
-  } else {
+  if (is.matrix(m) || inherits(m, "Matrix")) {
     md <- as.matrix(m)
     if (nrow(md) != ncol(md)) {
       return(NULL)
@@ -93,6 +91,10 @@ extract_measure_weights <- function(domain, indices = NULL) {
       return(NULL)
     }
     w <- diag(md)
+  } else if (is.numeric(m) && is.null(dim(m))) {
+    w <- m
+  } else {
+    return(NULL)
   }
 
   if (!is.null(indices)) {
