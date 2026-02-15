@@ -98,6 +98,19 @@ jobs:
           grep -q "Scenario Results" benchmarks/parity/parity-benchmark-latest.md
           grep -q "Baseline available scenarios:" benchmarks/parity/parity-benchmark-latest.md
           grep -q "Median objective relative gap" benchmarks/parity/parity-benchmark-latest.md
+          grep -q "Median objective absolute gap" benchmarks/parity/parity-benchmark-latest.md
 
       - name: Enforce parity quality gate
         run: Rscript tools/check_parity_gate.R --report benchmarks/parity/parity-benchmark-latest.rds --required easy,noisy
+
+      - name: Recommend parity threshold updates (advisory)
+        continue-on-error: true
+        run: |
+          Rscript tools/recommend_parity_thresholds.R --dir benchmarks/parity --quantile 0.95 --safety 1.25 --min-n 3 | tee benchmarks/parity/parity-threshold-recommendations.txt
+
+      - name: Upload parity threshold recommendations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-threshold-recommendations
+          path: benchmarks/parity/parity-threshold-recommendations.txt
