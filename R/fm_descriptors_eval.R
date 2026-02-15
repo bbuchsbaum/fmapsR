@@ -21,15 +21,25 @@ infer_hks_time_grid <- function(evals, n_times, time_range = NULL) {
 
   n_times <- as.integer(n_times)
   lam <- sort(abs(as.numeric(evals)))
-  lam <- lam[is.finite(lam) & lam > 0]
+  lam <- lam[is.finite(lam)]
+  lam_pos <- lam[lam > 0]
 
-  if (length(lam) < 2L) {
+  if (length(lam) < 2L || length(lam_pos) < 2L) {
     stop("Need at least two positive eigenvalues for HKS time grid", call. = FALSE)
   }
 
   if (is.null(time_range)) {
-    t_min <- 4 * log(10) / max(lam)
-    t_max <- 4 * log(10) / min(lam)
+    # Match pyFM auto_HKS convention: use largest eigenvalue and second-smallest.
+    lam_max <- max(lam)
+    lam_ref <- lam[2L]
+    if (!is.finite(lam_ref) || lam_ref <= 0) {
+      lam_ref <- min(lam_pos)
+    }
+    if (!is.finite(lam_max) || lam_max <= 0) {
+      stop("Need at least two positive eigenvalues for HKS time grid", call. = FALSE)
+    }
+    t_min <- 4 * log(10) / lam_max
+    t_max <- 4 * log(10) / lam_ref
   } else {
     if (!is.numeric(time_range) || length(time_range) != 2L || any(time_range <= 0)) {
       stop("`time_range` must be two positive values", call. = FALSE)
@@ -39,6 +49,37 @@ infer_hks_time_grid <- function(evals, n_times, time_range = NULL) {
   }
 
   exp(seq(log(t_min), log(t_max), length.out = n_times))
+}
+
+infer_wks_auto_params <- function(evals, n_energies) {
+  if (!is.numeric(n_energies) || length(n_energies) != 1L || n_energies < 1) {
+    stop("`n_energies` must be a positive scalar", call. = FALSE)
+  }
+  n_energies <- as.integer(n_energies)
+
+  lam <- sort(abs(as.numeric(evals)))
+  lam <- lam[is.finite(lam)]
+  if (length(lam) < 2L) {
+    stop("Need at least two finite log-eigenvalues for WKS energy grid", call. = FALSE)
+  }
+
+  lam_ref <- lam[2L]
+  lam_max <- lam[length(lam)]
+  if (!is.finite(lam_ref) || !is.finite(lam_max) || lam_ref <= 0 || lam_max <= 0) {
+    lam_pos <- lam[lam > 0]
+    if (length(lam_pos) < 2L) {
+      stop("Need at least two finite log-eigenvalues for WKS energy grid", call. = FALSE)
+    }
+    lam_ref <- lam_pos[1L]
+    lam_max <- lam_pos[length(lam_pos)]
+  }
+
+  e_min <- log(lam_ref)
+  e_max <- log(lam_max)
+  sigma <- 7 * (e_max - e_min) / n_energies
+  energy_grid <- seq(e_min + 2 * sigma, e_max - 2 * sigma, length.out = n_energies)
+
+  list(energy_grid = energy_grid, sigma = sigma)
 }
 
 infer_wks_energy_grid <- function(evals, n_energies, energy_range = NULL) {
@@ -115,6 +156,9 @@ fm_descriptor_hks <- function(domain, n_times = 16, time_range = NULL, scaled = 
 
   cols <- lapply(t_grid, function(ti) {
     coeff <- exp(-lam * ti)
+    if (isTRUE(scaled)) {
+      coeff <- coeff / max(sum(coeff), .Machine$double.eps)
+    }
     if (is.null(landmarks)) {
       matrix(rowSums((phi^2) * rep(coeff, each = nrow(phi))), ncol = 1L)
     } else {
@@ -123,8 +167,11 @@ fm_descriptor_hks <- function(domain, n_times = 16, time_range = NULL, scaled = 
   })
 
   out <- do.call(cbind, cols)
-  if (isTRUE(scaled)) {
-    out <- normalize_descriptor_columns(out)
+  if (!is.null(landmarks)) {
+    n_lm <- length(landmarks)
+    n_grid <- length(cols)
+    idx <- as.vector(sapply(seq_len(n_lm), function(j) j + n_lm * (seq_len(n_grid) - 1L)))
+    out <- out[, idx, drop = FALSE]
   }
   out
 }
@@ -142,25 +189,34 @@ fm_descriptor_hks <- function(domain, n_times = 16, time_range = NULL, scaled = 
 #' @export
 fm_descriptor_wks <- function(domain, n_energies = 16, sigma = NULL, energy_range = NULL, scaled = TRUE, landmarks = NULL) {
   eig <- operator_eigenpairs(domain)
-  phi <- eig$vectors
-  lam <- abs(eig$values)
+  phi_full <- eig$vectors
+  lam_full <- abs(eig$values)
 
   if (!is.null(landmarks)) {
     landmarks <- as.integer(landmarks)
-    if (any(is.na(landmarks)) || any(landmarks < 1L) || any(landmarks > nrow(phi))) {
+    if (any(is.na(landmarks)) || any(landmarks < 1L) || any(landmarks > nrow(phi_full))) {
       stop("`landmarks` must be valid sample indices", call. = FALSE)
     }
   }
 
-  e_grid <- infer_wks_energy_grid(lam, n_energies = n_energies, energy_range = energy_range)
-  log_lam <- log(pmax(lam, .Machine$double.eps))
+  keep_threshold <- if (is.null(landmarks)) 1e-5 else 1e-2
+  keep <- is.finite(lam_full) & lam_full > keep_threshold
+  lam <- lam_full[keep]
+  phi <- phi_full[, keep, drop = FALSE]
+  if (length(lam) < 2L) {
+    stop("Need at least two finite log-eigenvalues for WKS energy grid", call. = FALSE)
+  }
+
+  auto <- infer_wks_auto_params(lam_full, n_energies = n_energies)
+  e_grid <- if (is.null(energy_range)) {
+    auto$energy_grid
+  } else {
+    infer_wks_energy_grid(lam, n_energies = n_energies, energy_range = energy_range)
+  }
+  log_lam <- log(lam)
 
   if (is.null(sigma)) {
-    sigma <- if (length(e_grid) > 1L) {
-      0.5 * abs(e_grid[2] - e_grid[1])
-    } else {
-      0.5
-    }
+    sigma <- auto$sigma
   }
   if (!is.numeric(sigma) || length(sigma) != 1L || sigma <= 0) {
     stop("`sigma` must be a positive scalar", call. = FALSE)
@@ -168,7 +224,9 @@ fm_descriptor_wks <- function(domain, n_energies = 16, sigma = NULL, energy_rang
 
   cols <- lapply(e_grid, function(ei) {
     coeff <- exp(-((ei - log_lam)^2) / (2 * sigma^2))
-    coeff <- coeff / max(sum(coeff), .Machine$double.eps)
+    if (isTRUE(scaled)) {
+      coeff <- coeff / max(sum(coeff), .Machine$double.eps)
+    }
 
     if (is.null(landmarks)) {
       matrix(rowSums((phi^2) * rep(coeff, each = nrow(phi))), ncol = 1L)
@@ -178,8 +236,11 @@ fm_descriptor_wks <- function(domain, n_energies = 16, sigma = NULL, energy_rang
   })
 
   out <- do.call(cbind, cols)
-  if (isTRUE(scaled)) {
-    out <- normalize_descriptor_columns(out)
+  if (!is.null(landmarks)) {
+    n_lm <- length(landmarks)
+    n_grid <- length(cols)
+    idx <- as.vector(sapply(seq_len(n_lm), function(j) j + n_lm * (seq_len(n_grid) - 1L)))
+    out <- out[, idx, drop = FALSE]
   }
   out
 }
