@@ -135,3 +135,110 @@ test_that("fm_network_match supports pair batching and descriptor batching", {
   expect_identical(ab$diagnostics$commutativity_mode, "stream")
   expect_identical(ab$diagnostics$descriptor_batch_size, 4L)
 })
+
+test_that("fm_network validates constructor and map keys", {
+  d1 <- make_domain_for_network()
+  d2 <- make_domain_for_network()
+
+  expect_error(fm_network(list(a = d1)), "at least two")
+  expect_error(fm_network(list(a = d1, b = list())), "fm_domain")
+  expect_error(
+    fm_network(list(a = d1, b = d2), maps = list(ab = diag(3))),
+    "keyed as 'i->j'"
+  )
+})
+
+test_that("fm_network normalizes edge specifications and validates failures", {
+  d1 <- make_domain_for_network()
+  d2 <- make_domain_for_network()
+  d3 <- make_domain_for_network()
+
+  set.seed(901)
+  x <- matrix(rnorm(6 * 4), nrow = 6, ncol = 4)
+  desc <- list(
+    a = x,
+    b = x + matrix(rnorm(6 * 4, sd = 0.01), nrow = 6, ncol = 4),
+    c = x + matrix(rnorm(6 * 4, sd = 0.02), nrow = 6, ncol = 4)
+  )
+
+  # Character edge keys
+  net_char <- fm_network_match(
+    domains = list(a = d1, b = d2, c = d3),
+    descriptors = desc,
+    edges = c("a->b", "b->c"),
+    directed = TRUE,
+    optimizer = "cg",
+    cg_maxit = 2
+  )
+  expect_equal(length(net_char$maps), 2)
+
+  # Matrix/data-frame style edge specs
+  edge_mat <- matrix(c("a", "b", "b", "c"), ncol = 2, byrow = TRUE)
+  net_mat <- fm_network_match(
+    domains = list(a = d1, b = d2, c = d3),
+    descriptors = desc,
+    edges = edge_mat,
+    directed = TRUE,
+    optimizer = "cg",
+    cg_maxit = 2
+  )
+  expect_equal(length(net_mat$maps), 2)
+
+  # Undirected duplicate removal path
+  edge_df <- data.frame(i = c("a", "b"), j = c("b", "a"), stringsAsFactors = FALSE)
+  net_undir <- fm_network_match(
+    domains = list(a = d1, b = d2, c = d3),
+    descriptors = desc,
+    edges = edge_df,
+    directed = FALSE,
+    optimizer = "cg",
+    cg_maxit = 2
+  )
+  expect_equal(length(net_undir$maps), 2)
+
+  expect_error(
+    fm_network_match(
+      domains = list(a = d1, b = d2, c = d3),
+      descriptors = desc,
+      edges = c("bad-key"),
+      optimizer = "cg",
+      cg_maxit = 2
+    ),
+    "Invalid edge key"
+  )
+  expect_error(
+    fm_network_match(
+      domains = list(a = d1, b = d2, c = d3),
+      descriptors = desc,
+      edges = data.frame(i = "a", j = "a"),
+      optimizer = "cg",
+      cg_maxit = 2
+    ),
+    "Self-edges"
+  )
+  expect_error(
+    fm_network_match(
+      domains = list(a = d1, b = d2, c = d3),
+      descriptors = desc,
+      pair_batch_size = 0,
+      optimizer = "cg",
+      cg_maxit = 2
+    ),
+    "pair_batch_size"
+  )
+})
+
+test_that("cycle diagnostics handle invalid cycle definitions and dimension mismatch", {
+  d1 <- make_domain_for_network(n = 6, k = 3)
+  d2 <- make_domain_for_network(n = 6, k = 2)
+  d3 <- make_domain_for_network(n = 6, k = 4)
+
+  net <- fm_network(list(a = d1, b = d2, c = d3), directed = TRUE)
+  net <- fm_network_add_map(net, "a", "b", matrix(1, nrow = 2, ncol = 3))
+  net <- fm_network_add_map(net, "b", "c", matrix(1, nrow = 4, ncol = 2))
+  net <- fm_network_add_map(net, "c", "a", matrix(1, nrow = 3, ncol = 5))
+
+  expect_error(fm_network_cycle_error(net, c("a", "b")), "length 3")
+  expect_true(is.na(fm_network_cycle_error(net, c("a", "b", "c"))))
+  expect_error(fm_network_get_map(list(), "a", "b"), "fm_network")
+})

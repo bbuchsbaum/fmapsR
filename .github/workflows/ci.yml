@@ -32,9 +32,15 @@ jobs:
           extra-packages: |
             any::testthat
             any::pkgload
+            any::covr
 
       - name: Run testthat
         run: Rscript -e "testthat::test_local('.', reporter = 'summary')"
+
+      - name: Enforce coverage floor (80%)
+        if: matrix.os == 'ubuntu-latest' && matrix.r == 'release'
+        run: |
+          Rscript -e "cov <- covr::package_coverage(); p <- covr::percent_coverage(cov); cat(sprintf('Coverage: %.2f%%\n', p)); if (p < 80) stop(sprintf('Coverage %.2f%% is below required 80%%', p))"
 
   benchmark-smoke:
     name: Benchmark smoke (ubuntu)

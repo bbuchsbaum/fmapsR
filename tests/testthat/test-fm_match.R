@@ -123,3 +123,125 @@ test_that("fm_match supports streamed descriptor batching for commutativity term
   expect_equal(fit_batch$diagnostics$total_objective, fit_pre$diagnostics$total_objective, tolerance = 1e-6)
   expect_equal(fit_batch$C, fit_pre$C, tolerance = 1e-6)
 })
+
+test_that("fm_match supports lbfgsb optimizer path", {
+  source <- make_test_domain(8)
+  target <- make_test_domain(8)
+
+  set.seed(77)
+  src_desc <- matrix(rnorm(8 * 4), nrow = 8, ncol = 4)
+  tgt_desc <- src_desc + matrix(rnorm(8 * 4, sd = 0.02), nrow = 8, ncol = 4)
+
+  fit <- fm_match(
+    source = source,
+    target = target,
+    descriptors = list(source = src_desc, target = tgt_desc),
+    penalties = list(descr = 1e-1, lap = 1e-3, comm = 1e-1),
+    optimizer = "lbfgsb",
+    maxit = 20
+  )
+
+  expect_s3_class(fit, "fm_fit")
+  expect_identical(fit$diagnostics$optimizer, "lbfgsb")
+  expect_true(all(c("function", "gradient") %in% names(fit$diagnostics$counts)))
+  expect_true(is.finite(fit$diagnostics$total_objective))
+})
+
+test_that("fm_match validates cg controls", {
+  source <- make_test_domain(6)
+  target <- make_test_domain(6)
+  src_desc <- cbind(seq_len(6), seq_len(6)^2)
+
+  expect_error(
+    fm_match(
+      source = source,
+      target = target,
+      descriptors = list(source = src_desc, target = src_desc),
+      optimizer = "cg",
+      cg_tol = 0
+    ),
+    "cg_tol"
+  )
+
+  expect_error(
+    fm_match(
+      source = source,
+      target = target,
+      descriptors = list(source = src_desc, target = src_desc),
+      optimizer = "cg",
+      cg_maxit = 0
+    ),
+    "cg_maxit"
+  )
+})
+
+test_that("fm_match applies bounded default cg iteration budget", {
+  source <- make_test_domain(8)
+  target <- make_test_domain(8)
+
+  set.seed(19)
+  src_desc <- matrix(rnorm(8 * 3), nrow = 8, ncol = 3)
+  tgt_desc <- src_desc + matrix(rnorm(8 * 3, sd = 0.01), nrow = 8, ncol = 3)
+
+  fit <- fm_match(
+    source = source,
+    target = target,
+    descriptors = list(source = src_desc, target = tgt_desc),
+    optimizer = "cg",
+    maxit = 10
+  )
+
+  expect_lte(fit$diagnostics$counts[["function"]], 5)
+  expect_true(is.finite(fit$diagnostics$total_objective))
+})
+
+test_that("streaming can force R backend when cpp kernels are available", {
+  source <- make_test_domain(12)
+  target <- make_test_domain(12)
+
+  set.seed(42)
+  src_desc <- matrix(rnorm(12 * 18), nrow = 12, ncol = 18)
+  tgt_desc <- src_desc + matrix(rnorm(12 * 18, sd = 0.01), nrow = 12, ncol = 18)
+
+  fit <- fm_match(
+    source = source,
+    target = target,
+    descriptors = list(source = src_desc, target = tgt_desc),
+    penalties = list(descr = 1e-1, lap = 1e-3, comm = 1),
+    optimizer = "cg",
+    cg_maxit = 4,
+    kernel_backend = "auto",
+    descriptor_batch_size = 6
+  )
+
+  expect_identical(fit$diagnostics$kernel_backend, "r")
+  expect_identical(fit$diagnostics$commutativity_mode, "stream")
+
+  has_cpp <- exists("fm_match_solve_cg_cpp", mode = "function") &&
+    exists("fm_match_value_grad_cpp", mode = "function") &&
+    exists("fm_match_energy_terms_cpp", mode = "function")
+
+  if (has_cpp) {
+    expect_match(fit$diagnostics$backend_note, "switched kernel backend")
+  } else {
+    expect_null(fit$diagnostics$backend_note)
+  }
+})
+
+test_that("fm_fit_matrix validates input class and print method emits summary", {
+  source <- make_test_domain(6)
+  target <- make_test_domain(6)
+  src_desc <- cbind(seq_len(6), seq_len(6)^2)
+
+  fit <- fm_match(
+    source = source,
+    target = target,
+    descriptors = list(source = src_desc, target = src_desc),
+    penalties = list(descr = 1, lap = 0, comm = 0),
+    optimizer = "cg",
+    cg_maxit = 3
+  )
+
+  expect_error(fm_fit_matrix(list()), "fm_fit")
+  expect_output(print(fit), "<fm_fit> C:")
+})

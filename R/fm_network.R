@@ -151,17 +151,17 @@ normalize_edge_table <- function(domains, edges = NULL, directed = TRUE) {
     return(do.call(rbind, rows))
   }
 
-  if (is.character(edges)) {
+  if (is.data.frame(edges) || is.matrix(edges)) {
+    edge_df <- as.data.frame(edges, stringsAsFactors = FALSE)
+    if (!all(c("i", "j") %in% names(edge_df)) && ncol(edge_df) >= 2L) {
+      names(edge_df)[1:2] <- c("i", "j")
+    }
+  } else if (is.character(edges)) {
     out <- lapply(edges, function(key) {
       ij <- parse_edge_key(key)
       data.frame(i = ij[[1]], j = ij[[2]], stringsAsFactors = FALSE)
     })
     edge_df <- do.call(rbind, out)
-  } else if (is.data.frame(edges) || is.matrix(edges)) {
-    edge_df <- as.data.frame(edges, stringsAsFactors = FALSE)
-    if (!all(c("i", "j") %in% names(edge_df)) && ncol(edge_df) >= 2L) {
-      names(edge_df)[1:2] <- c("i", "j")
-    }
   } else {
     stop("`edges` must be NULL, character keys, matrix, or data frame", call. = FALSE)
   }

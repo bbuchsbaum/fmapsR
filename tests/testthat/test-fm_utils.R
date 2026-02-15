@@ -59,6 +59,38 @@ test_that("fm_compose and fm_inverse enforce shape consistency", {
   expect_error(fm_compose(fit1, fit_bad), "incompatible")
 })
 
+test_that("fm_inverse and composition provide round-trip consistency", {
+  fit <- make_identity_fit(n = 8, k = 4)
+  inv_pinv <- fm_inverse(fit, method = "pseudoinverse")
+  inv_t <- fm_inverse(fit, method = "transpose")
+
+  comp_pinv <- fm_compose(fit, inv_pinv)
+  comp_t <- fm_compose(fit, inv_t)
+
+  expect_equal(comp_pinv$C, diag(4), tolerance = 1e-8)
+  expect_equal(comp_t$C, diag(4), tolerance = 1e-8)
+})
+
+test_that("fm_transfer supports reverse direction with matching dimensions", {
+  fit <- make_identity_fit(n = 7, k = 4)
+  x <- matrix(seq_len(fit$target$n_samples), ncol = 1)
+
+  y_rev <- fm_transfer(fit, x, reverse = TRUE)
+  expected <- fm_unproject(fit$source, fm_project(fit$source, x))
+
+  expect_equal(as.numeric(y_rev), as.numeric(expected), tolerance = 1e-8)
+})
+
+test_that("as_p2p guards against oversized dense nearest-neighbor problems", {
+  fit <- make_identity_fit(n = 8, k = 4)
+  fit$source$n_samples <- 10000L
+  fit$target$n_samples <- 6000L
+  fit$source$basis$vectors <- matrix(0, nrow = 10000, ncol = 4)
+  fit$target$basis$vectors <- matrix(0, nrow = 6000, ncol = 4)
+
+  expect_error(as_p2p(fit), "too large for dense nearest-neighbor search")
+})
+
 test_that("native nearest-neighbor kernel matches dense distance argmin", {
   skip_if_not(exists("fm_nearest_neighbor_index_cpp", mode = "function"))
 

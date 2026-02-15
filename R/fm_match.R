@@ -561,7 +561,9 @@ fm_match <- function(
   C0 <- init_map(k2 = k2, k1 = k1, init = init)
   if (optimizer == "cg") {
     if (is.null(cg_maxit)) {
-      cg_maxit <- max(1L, min(8L, ceiling(maxit / 120)))
+      # Keep a practical default budget: enough for moderate convergence
+      # without approaching full L-BFGS-B runtime.
+      cg_maxit <- max(5L, min(100L, ceiling(maxit / 5)))
     }
     cg_maxit <- as.integer(cg_maxit)
     if (!is.numeric(cg_tol) || length(cg_tol) != 1L || cg_tol <= 0) {

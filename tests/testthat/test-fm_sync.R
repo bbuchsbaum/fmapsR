@@ -141,3 +141,17 @@ test_that("robust sync downweights outlier edges and improves over cycle mode", 
   expect_true(all(ew$robust_weight[outlier_idx] < stats::median(ew$robust_weight[!outlier_idx])))
   expect_identical(unique(ew$robust_method), "tukey")
 })
+
+test_that("sync diagnostics handle zero-iteration and anchor validation paths", {
+  net <- make_noisy_cycle_network(noise_sd = 0.20, seed = 77)
+
+  expect_error(
+    fm_sync(net, mode = "adjacency", anchor = "missing-node"),
+    "anchor"
+  )
+
+  out0 <- fm_sync(net, mode = "adjacency", nit = 0)
+  expect_identical(out0$diagnostics$nit_done, 0L)
+  expect_length(out0$diagnostics$delta, 0L)
+  expect_true(all(names(out0$transforms) %in% names(net$domains)))
+})
