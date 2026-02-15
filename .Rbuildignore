@@ -9,3 +9,6 @@
 ^Meta($|/)
 ^benchmarks($|/)
 ^tmp-.*\.out$
+^\.omc($|/)
+^\.rcmdcheck_result\.rds$
+^\.covr_result\.rds$

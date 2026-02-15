@@ -20,3 +20,6 @@ src/*.dylib
 /doc/
 /Meta/
 tmp-*.out
+.omc/
+.covr_result.rds
+.rcmdcheck_result.rds
