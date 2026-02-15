@@ -23,14 +23,32 @@ numeric_or_na <- function(x) {
   as.numeric(x)
 }
 
+pairwise_tool_path <- function(filename) {
+  candidates <- c(
+    file.path("tools", filename),
+    file.path("..", "..", "tools", filename)
+  )
+  for (p in candidates) {
+    pp <- normalizePath(p, winslash = "/", mustWork = FALSE)
+    if (file.exists(pp)) {
+      return(pp)
+    }
+  }
+  candidates[[1]]
+}
+
+source(pairwise_tool_path("benchmark_config.R"), local = environment())
+
 parse_args <- function(args) {
+  seed_cfg <- benchmark_seed_registry()
+
   out <- list(
     r_runs = 3L,
     py_runs = 3L,
     target_ratio = 0.30,
     stability_margin = 0.02,
     stability_boot = 500L,
-    stability_seed = 2026L,
+    stability_seed = seed_cfg$network_seed,
     output_dir = "benchmarks/pairwise"
   )
 
@@ -210,11 +228,11 @@ assess_runtime_target <- function(improvement, improvement_samples, target_ratio
 }
 
 run_r_pipeline_once <- function(
-  seed = 42,
-  n = 160,
-  k = 32,
-  p = 24,
-  maxit = 120,
+  seed = benchmark_seed_registry()$pairwise_seed,
+  n = benchmark_pairwise_problem_spec()$n,
+  k = benchmark_pairwise_problem_spec()$k,
+  p = benchmark_pairwise_problem_spec()$p,
+  maxit = benchmark_pairwise_problem_spec()$maxit,
   optimizer = "cg",
   kernel_backend = "auto"
 ) {
@@ -247,7 +265,12 @@ run_r_pipeline_once <- function(
   })[["elapsed"]]
 
   t_refine <- system.time({
-    fit_refined <- fm_refine(fit, method = "icp", nit = 5, use_adj = FALSE)
+    fit_refined <- fm_refine(
+      fit,
+      method = "icp",
+      nit = benchmark_pairwise_problem_spec()$icp_nit,
+      use_adj = FALSE
+    )
   })[["elapsed"]]
 
   list(
@@ -269,7 +292,8 @@ run_r_benchmark <- function(
   seed_offset = 40L,
   measure_memory = TRUE
 ) {
-  invisible(run_r_pipeline_once(seed = 13, optimizer = optimizer, kernel_backend = kernel_backend))
+  warm_seed <- max(1L, as.integer(seed_offset) - 27L)
+  invisible(run_r_pipeline_once(seed = warm_seed, optimizer = optimizer, kernel_backend = kernel_backend))
 
   runs <- lapply(seq_len(n_runs), function(i) {
     run_r_pipeline_once(
@@ -305,7 +329,7 @@ run_r_benchmark <- function(
 
 run_pyfm_baseline_once <- function(py, n, k, p, maxit, icp_nit, seed) {
   cmd <- c(
-    "tools/benchmark_pyfm.py",
+    pairwise_tool_path("benchmark_pyfm.py"),
     "--n", as.character(n),
     "--k1", as.character(k),
     "--k2", as.character(k),
@@ -330,12 +354,12 @@ run_pyfm_baseline_once <- function(py, n, k, p, maxit, icp_nit, seed) {
 }
 
 run_pyfm_baseline <- function(
-  n = 160L,
-  k = 32L,
-  p = 24L,
-  maxit = 120L,
-  icp_nit = 5L,
-  seed = 42L,
+  n = benchmark_pairwise_problem_spec()$n,
+  k = benchmark_pairwise_problem_spec()$k,
+  p = benchmark_pairwise_problem_spec()$p,
+  maxit = benchmark_pairwise_problem_spec()$maxit,
+  icp_nit = benchmark_pairwise_problem_spec()$icp_nit,
+  seed = benchmark_seed_registry()$pairwise_seed,
   n_runs = 3L
 ) {
   candidates <- c(
@@ -474,6 +498,8 @@ main <- function() {
   }
 
   opts <- parse_args(commandArgs(trailingOnly = TRUE))
+  pair_cfg <- benchmark_pairwise_problem_spec()
+  seed_cfg <- benchmark_seed_registry()
 
   cpp_available <- exists("fm_match_solve_cg_cpp", mode = "function")
   active_backend <- if (cpp_available) "cpp" else "r"
@@ -482,23 +508,23 @@ main <- function() {
     n_runs = opts$r_runs,
     optimizer = "cg",
     kernel_backend = active_backend,
-    seed_offset = 40L,
+    seed_offset = seed_cfg$pairwise_seed_offset,
     measure_memory = TRUE
   )
   r_baseline <- run_r_benchmark(
     n_runs = opts$r_runs,
     optimizer = "cg",
     kernel_backend = "r",
-    seed_offset = 40L,
+    seed_offset = seed_cfg$pairwise_seed_offset,
     measure_memory = FALSE
   )
   pyfm <- run_pyfm_baseline(
-    n = 160L,
-    k = 32L,
-    p = 24L,
-    maxit = 120L,
-    icp_nit = 5L,
-    seed = 42L,
+    n = pair_cfg$n,
+    k = pair_cfg$k,
+    p = pair_cfg$p,
+    maxit = pair_cfg$maxit,
+    icp_nit = pair_cfg$icp_nit,
+    seed = seed_cfg$pairwise_seed,
     n_runs = opts$py_runs
   )
 

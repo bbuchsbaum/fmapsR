@@ -1,11 +1,30 @@
 #!/usr/bin/env Rscript
 
+network_tool_path <- function(filename) {
+  candidates <- c(
+    file.path("tools", filename),
+    file.path("..", "..", "tools", filename)
+  )
+  for (p in candidates) {
+    pp <- normalizePath(p, winslash = "/", mustWork = FALSE)
+    if (file.exists(pp)) {
+      return(pp)
+    }
+  }
+  candidates[[1]]
+}
+
+source(network_tool_path("benchmark_config.R"), local = environment())
+
 parse_args <- function(args) {
+  defaults <- benchmark_network_defaults()
+  seed_cfg <- benchmark_seed_registry()
+
   out <- list(
-    scales = c(10L, 25L, 50L),
-    mode = "robust",
-    nit = 8L,
-    seed = 2026L,
+    scales = defaults$scales,
+    mode = defaults$mode,
+    nit = defaults$nit,
+    seed = seed_cfg$network_seed,
     output_dir = "benchmarks/network-sync",
     enforce_regression = FALSE
   )
@@ -114,8 +133,7 @@ run_one <- function(n_nodes, mode, nit, seed) {
 }
 
 reference_targets <- function() {
-  # Conservative quality baselines for regression gating.
-  c("10" = 0.60, "25" = 0.55, "50" = 0.50)
+  benchmark_network_reference_targets()
 }
 
 check_regression <- function(results) {

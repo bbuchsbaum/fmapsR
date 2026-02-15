@@ -37,6 +37,8 @@ parity_tool_path <- function(filename) {
   candidates[[1]]
 }
 
+source(parity_tool_path("benchmark_config.R"), local = environment())
+
 parity_python_candidates <- function() {
   raw <- c(
     Sys.getenv("PYFM_BENCH_PYTHON", unset = ""),
@@ -120,8 +122,10 @@ parity_load_fmaps_package <- function(root = parity_find_repo_root(), target_env
 }
 
 parse_args <- function(args) {
+  seed_cfg <- benchmark_seed_registry()
+
   out <- list(
-    scenarios = c("easy", "noisy", "partial"),
+    scenarios = names(benchmark_parity_scenarios()),
     r_runs = 3L,
     py_runs = 3L,
     r_cg_maxit = 3L,
@@ -131,7 +135,7 @@ parse_args <- function(args) {
     py_maxit = 120L,
     py_icp_nit = 3L,
     warmup = TRUE,
-    seed = 42L,
+    seed = seed_cfg$parity_seed,
     output_dir = "benchmarks/parity"
   )
 
@@ -189,11 +193,7 @@ parse_args <- function(args) {
 }
 
 default_scenarios <- function() {
-  list(
-    easy = list(n = 120L, k = 24L, p = 18L, noise = 0.02, basis_noise = 0.00, descriptor_corruption = 0.00, eval_fraction = 1.00),
-    noisy = list(n = 120L, k = 24L, p = 18L, noise = 0.12, basis_noise = 0.20, descriptor_corruption = 0.30, eval_fraction = 1.00),
-    partial = list(n = 120L, k = 24L, p = 18L, noise = 0.20, basis_noise = 0.40, descriptor_corruption = 0.50, eval_fraction = 0.60)
-  )
+  benchmark_parity_scenarios()
 }
 
 parity_make_problem <- function(cfg, seed = 42L) {
@@ -572,7 +572,7 @@ main <- function() {
   for (i in seq_along(opts$scenarios)) {
     nm <- opts$scenarios[[i]]
     cfg <- scenarios[[nm]]
-    seed_i <- opts$seed + (i - 1L) * 100L
+    seed_i <- opts$seed + (i - 1L) * benchmark_seed_registry()$parity_scenario_stride
 
     r_res <- run_r_parity(
       cfg = cfg,

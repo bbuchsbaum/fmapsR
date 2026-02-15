@@ -49,6 +49,7 @@ test_that("parity argument parser supports tuned runtime knobs", {
   expect_equal(opts_default$r_refine_nit, 2L)
   expect_equal(opts_default$r_cg_tol, 1e-6)
   expect_identical(opts_default$r_kernel_backend, "auto")
+  expect_equal(opts_default$seed, 42L)
 
   opts <- env$parse_args(c(
     "--r-cg-maxit", "4",

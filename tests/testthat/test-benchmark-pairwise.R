@@ -35,6 +35,9 @@ load_pairwise_tools <- function() {
 test_that("pairwise benchmark arg parser accepts stability options", {
   env <- load_pairwise_tools()
 
+  defaults <- env$parse_args(character())
+  expect_equal(defaults$stability_seed, 2026L)
+
   opts <- env$parse_args(c(
     "--r-runs", "5",
     "--py-runs", "4",
