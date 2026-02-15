@@ -66,6 +66,18 @@ Run parity benchmark report (runtime + quality vs pyFM, multi-scenario):
 Rscript tools/benchmark_parity.R --scenarios easy,noisy,partial --r-runs 3 --py-runs 3
 ```
 
+Enforce the parity quality gate (accuracy/geodesic + objective/map deltas):
+
+```bash
+Rscript tools/check_parity_gate.R --report benchmarks/parity/parity-benchmark-latest.rds --required easy,noisy
+```
+
+Recommend updated parity thresholds from historical reports:
+
+```bash
+Rscript tools/recommend_parity_thresholds.R --dir benchmarks/parity --quantile 0.95 --safety 1.25 --min-n 3
+```
+
 If pyFM dependencies are unavailable, parity tests are skip-safe and parity reports mark unavailable baselines explicitly.
 
 Run the batched-memory benchmark (RSS before/after):
