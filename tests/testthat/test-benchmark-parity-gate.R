@@ -48,7 +48,10 @@ test_that("parity gate scenario evaluator detects threshold failures", {
     scenario = "easy",
     baseline_available = TRUE,
     accuracy_delta = -0.05,
-    geodesic_norm_delta = 0.02
+    geodesic_norm_delta = 0.02,
+    objective_abs_gap = 1.0,
+    map_fro_norm_delta = 0.01,
+    map_orth_resid_delta = -0.01
   )
   chk_ok <- env$scenario_gate_row(row_ok, thresholds = thr)
   expect_true(isTRUE(chk_ok$ok))
@@ -57,9 +60,25 @@ test_that("parity gate scenario evaluator detects threshold failures", {
     scenario = "noisy",
     baseline_available = TRUE,
     accuracy_delta = -0.30,
-    geodesic_norm_delta = 0.02
+    geodesic_norm_delta = 0.02,
+    objective_abs_gap = 1.0,
+    map_fro_norm_delta = 0.01,
+    map_orth_resid_delta = -0.01
   )
   chk_bad <- env$scenario_gate_row(row_bad, thresholds = thr)
   expect_false(isTRUE(chk_bad$ok))
   expect_true(grepl("accuracy_delta", chk_bad$reason, fixed = TRUE))
+
+  row_bad_obj <- data.frame(
+    scenario = "easy",
+    baseline_available = TRUE,
+    accuracy_delta = -0.01,
+    geodesic_norm_delta = 0.01,
+    objective_abs_gap = 10.0,
+    map_fro_norm_delta = 0.01,
+    map_orth_resid_delta = 0.01
+  )
+  chk_bad_obj <- env$scenario_gate_row(row_bad_obj, thresholds = thr)
+  expect_false(isTRUE(chk_bad_obj$ok))
+  expect_true(grepl("objective_abs_gap", chk_bad_obj$reason, fixed = TRUE))
 })

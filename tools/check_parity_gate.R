@@ -47,8 +47,11 @@ scenario_gate_row <- function(row, thresholds) {
 
   acc_min <- thresholds$accuracy_delta_min[[scenario]]
   geod_max <- thresholds$geodesic_norm_delta_max[[scenario]]
+  obj_abs_max <- thresholds$objective_abs_gap_max[[scenario]]
+  map_fro_abs_max <- thresholds$map_fro_norm_delta_abs_max[[scenario]]
+  map_orth_abs_max <- thresholds$map_orth_resid_delta_abs_max[[scenario]]
 
-  if (is.null(acc_min) || is.null(geod_max)) {
+  if (is.null(acc_min) || is.null(geod_max) || is.null(obj_abs_max) || is.null(map_fro_abs_max) || is.null(map_orth_abs_max)) {
     return(list(
       scenario = scenario,
       ok = FALSE,
@@ -58,8 +61,14 @@ scenario_gate_row <- function(row, thresholds) {
 
   acc <- as.numeric(row$accuracy_delta[[1]])
   geod <- as.numeric(row$geodesic_norm_delta[[1]])
+  obj_abs <- as.numeric(row$objective_abs_gap[[1]])
+  map_fro_abs <- abs(as.numeric(row$map_fro_norm_delta[[1]]))
+  map_orth_abs <- abs(as.numeric(row$map_orth_resid_delta[[1]]))
   acc_ok <- is.finite(acc) && (acc >= acc_min)
   geod_ok <- is.finite(geod) && (geod <= geod_max)
+  obj_ok <- is.finite(obj_abs) && (obj_abs <= obj_abs_max)
+  map_fro_ok <- is.finite(map_fro_abs) && (map_fro_abs <= map_fro_abs_max)
+  map_orth_ok <- is.finite(map_orth_abs) && (map_orth_abs <= map_orth_abs_max)
 
   reason <- if (!baseline_ok) {
     "baseline_unavailable"
@@ -67,13 +76,19 @@ scenario_gate_row <- function(row, thresholds) {
     sprintf("accuracy_delta %.6f < %.6f", acc, acc_min)
   } else if (!geod_ok) {
     sprintf("geodesic_norm_delta %.6f > %.6f", geod, geod_max)
+  } else if (!obj_ok) {
+    sprintf("objective_abs_gap %.6f > %.6f", obj_abs, obj_abs_max)
+  } else if (!map_fro_ok) {
+    sprintf("|map_fro_norm_delta| %.6f > %.6f", map_fro_abs, map_fro_abs_max)
+  } else if (!map_orth_ok) {
+    sprintf("|map_orth_resid_delta| %.6f > %.6f", map_orth_abs, map_orth_abs_max)
   } else {
     "ok"
   }
 
   list(
     scenario = scenario,
-    ok = baseline_ok && acc_ok && geod_ok,
+    ok = baseline_ok && acc_ok && geod_ok && obj_ok && map_fro_ok && map_orth_ok,
     reason = reason
   )
 }

@@ -62,6 +62,21 @@ benchmark_parity_gate_thresholds <- function() {
       easy = 0.08,
       noisy = 0.15,
       partial = 0.20
+    ),
+    objective_abs_gap_max = c(
+      easy = 2.0,
+      noisy = 2.0,
+      partial = 3.0
+    ),
+    map_fro_norm_delta_abs_max = c(
+      easy = 0.50,
+      noisy = 0.50,
+      partial = 0.75
+    ),
+    map_orth_resid_delta_abs_max = c(
+      easy = 0.10,
+      noisy = 0.15,
+      partial = 0.20
     )
   )
 }

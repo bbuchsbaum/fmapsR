@@ -472,6 +472,11 @@ compare_scenario <- function(name, cfg, r_res, py_res) {
   } else {
     NA_real_
   }
+  objective_abs_gap <- if (baseline_available && is.finite(py_objective)) {
+    abs(r_res$objective - py_objective)
+  } else {
+    NA_real_
+  }
   map_fro_norm_delta <- if (baseline_available && is.finite(py_map_fro)) r_res$map_fro_norm - py_map_fro else NA_real_
   map_orth_resid_delta <- if (baseline_available && is.finite(py_map_orth)) r_res$map_orth_resid - py_map_orth else NA_real_
 
@@ -514,6 +519,7 @@ compare_scenario <- function(name, cfg, r_res, py_res) {
     accuracy_delta = accuracy_delta,
     geodesic_norm_delta = geodesic_norm_delta,
     objective_rel_gap = objective_rel_gap,
+    objective_abs_gap = objective_abs_gap,
     map_fro_norm_delta = map_fro_norm_delta,
     map_orth_resid_delta = map_orth_resid_delta,
     baseline_available = baseline_available,
@@ -581,18 +587,19 @@ parity_write_report <- function(report, output_dir = "benchmarks/parity") {
     lines,
     "",
     "## Objective/Map Parity",
-    "| scenario | r_objective | py_objective | objective_rel_gap | r_map_fro_norm | py_map_fro_norm | map_fro_norm_delta | r_map_orth_resid | py_map_orth_resid | map_orth_resid_delta |",
-    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+    "| scenario | r_objective | py_objective | objective_rel_gap | objective_abs_gap | r_map_fro_norm | py_map_fro_norm | map_fro_norm_delta | r_map_orth_resid | py_map_orth_resid | map_orth_resid_delta |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
   )
 
   for (i in seq_len(nrow(rows))) {
     r <- rows[i, , drop = FALSE]
     lines <- c(lines, sprintf(
-      "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |",
+      "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |",
       r$scenario,
       as.character(r$r_objective),
       as.character(r$py_objective),
       as.character(r$objective_rel_gap),
+      as.character(r$objective_abs_gap),
       as.character(r$r_map_fro_norm),
       as.character(r$py_map_fro_norm),
       as.character(r$map_fro_norm_delta),
@@ -610,6 +617,7 @@ parity_write_report <- function(report, output_dir = "benchmarks/parity") {
     sprintf("- Mean accuracy delta (R - pyFM): %s", as.character(report$summary$mean_accuracy_delta)),
     sprintf("- Mean geodesic normalized delta (R - pyFM): %s", as.character(report$summary$mean_geodesic_norm_delta)),
     sprintf("- Median objective relative gap: %s", as.character(report$summary$median_objective_rel_gap)),
+    sprintf("- Median objective absolute gap: %s", as.character(report$summary$median_objective_abs_gap)),
     sprintf("- Mean map Frobenius norm delta (R - pyFM): %s", as.character(report$summary$mean_map_fro_norm_delta)),
     sprintf("- Mean map orthogonality residual delta (R - pyFM): %s", as.character(report$summary$mean_map_orth_resid_delta)),
     ""
@@ -689,6 +697,7 @@ main <- function() {
       mean_accuracy_delta = if (any(available)) mean(scenario_df$accuracy_delta[available], na.rm = TRUE) else NA_real_,
       mean_geodesic_norm_delta = if (any(available)) mean(scenario_df$geodesic_norm_delta[available], na.rm = TRUE) else NA_real_,
       median_objective_rel_gap = if (any(available)) stats::median(scenario_df$objective_rel_gap[available], na.rm = TRUE) else NA_real_,
+      median_objective_abs_gap = if (any(available)) stats::median(scenario_df$objective_abs_gap[available], na.rm = TRUE) else NA_real_,
       mean_map_fro_norm_delta = if (any(available)) mean(scenario_df$map_fro_norm_delta[available], na.rm = TRUE) else NA_real_,
       mean_map_orth_resid_delta = if (any(available)) mean(scenario_df$map_orth_resid_delta[available], na.rm = TRUE) else NA_real_
     )

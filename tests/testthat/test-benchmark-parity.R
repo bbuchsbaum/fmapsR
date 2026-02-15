@@ -74,6 +74,7 @@ test_that("parity report writer emits markdown and rds artifacts", {
     py_runtime_sec = c(0.2, 0.3),
     runtime_improvement_ratio = c(0.5, 0.333),
     objective_rel_gap = c(0.1, 0.2),
+    objective_abs_gap = c(0.5, 1.0),
     map_fro_norm_delta = c(0.01, -0.02),
     map_orth_resid_delta = c(0.005, -0.004),
     r_accuracy = c(0.9, 0.8),
@@ -108,6 +109,7 @@ test_that("parity report writer emits markdown and rds artifacts", {
       mean_accuracy_delta = 0.05,
       mean_geodesic_norm_delta = -0.03,
       median_objective_rel_gap = 0.15,
+      median_objective_abs_gap = 0.75,
       mean_map_fro_norm_delta = -0.005,
       mean_map_orth_resid_delta = 0.0005
     )
@@ -124,6 +126,7 @@ test_that("parity report writer emits markdown and rds artifacts", {
   expect_true(any(grepl("Scenario Results", md, fixed = TRUE)))
   expect_true(any(grepl("Median runtime improvement ratio", md, fixed = TRUE)))
   expect_true(any(grepl("Median objective relative gap", md, fixed = TRUE)))
+  expect_true(any(grepl("Median objective absolute gap", md, fixed = TRUE)))
 })
 
 test_that("pyFM parity runner is skip-safe when dependencies are unavailable", {
@@ -176,6 +179,7 @@ test_that("compare_scenario computes expected delta fields and unavailable basel
   expect_equal(row_ok$accuracy_delta, 0.1)
   expect_equal(row_ok$geodesic_norm_delta, -0.02)
   expect_equal(row_ok$objective_rel_gap, 0.25)
+  expect_equal(row_ok$objective_abs_gap, 2)
   expect_equal(row_ok$map_fro_norm_delta, 0.1)
   expect_equal(row_ok$map_orth_resid_delta, -0.03)
   expect_identical(row_ok$note, "ok")
