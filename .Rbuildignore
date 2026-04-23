@@ -1,4 +1,5 @@
 ^docs($|/)
+^_pkgdown\.yml$
 ^\.github($|/)
 ^\.venv-bench($|/)
 ^pyFM($|/)

@@ -1,0 +1,14 @@
+url: https://bbuchsbaum.github.io/fmapsR/
+
+template:
+  package: albersdown
+  bootstrap: 5
+
+articles:
+  - title: Articles
+    navbar: Articles
+    contents:
+      - getting-started
+      - pairwise-functional-maps
+      - multi-dataset-sync-consensus
+      - non-shape-multidimensional-data
