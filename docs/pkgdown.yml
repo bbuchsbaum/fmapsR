@@ -1,0 +1,9 @@
+pandoc: 3.7.0.2
+pkgdown: 2.2.0
+pkgdown_sha: ~
+articles:
+  getting-started: getting-started.html
+  multi-dataset-sync-consensus: multi-dataset-sync-consensus.html
+  non-shape-multidimensional-data: non-shape-multidimensional-data.html
+  pairwise-functional-maps: pairwise-functional-maps.html
+last_built: 2026-04-23T14:01Z

@@ -24,19 +24,24 @@ inline void add_comm_terms(
     std::min(op1_cube.n_slices, op2_cube.n_slices),
     std::min(op1_t_cube.n_slices, op2_t_cube.n_slices)
   );
+  arma::mat residual(C.n_rows, C.n_cols, arma::fill::zeros);
+  arma::mat work(C.n_rows, C.n_cols, arma::fill::zeros);
   for (arma::uword i = 0; i < n_ops; ++i) {
     const arma::mat& op1 = op1_cube.slice(i);
     const arma::mat& op2 = op2_cube.slice(i);
     const arma::mat& op1_t = op1_t_cube.slice(i);
     const arma::mat& op2_t = op2_t_cube.slice(i);
-    const arma::mat residual = op2 * C - C * op1;
+    residual = op2 * C;
+    residual -= C * op1;
 
     if (value != nullptr) {
       *value += w_comm * 0.5 * arma::accu(residual % residual);
     }
 
     if (grad != nullptr) {
-      *grad += w_comm * (op2_t * residual - residual * op1_t);
+      work = op2_t * residual;
+      work -= residual * op1_t;
+      *grad += w_comm * work;
     }
   }
 }
@@ -64,6 +69,58 @@ inline arma::mat apply_operator(
   }
 
   add_comm_terms(C, op1_cube, op2_cube, op1_t_cube, op2_t_cube, w_comm, nullptr, &out);
+  return out;
+}
+
+inline arma::mat apply_fixed_first_column_operator(
+  const double fixed_value,
+  const arma::mat& AAt,
+  const arma::mat& ev_sqdiff,
+  const arma::cube& op1_cube,
+  const arma::cube& op2_cube,
+  const double w_descr,
+  const double w_lap,
+  const double w_comm
+) {
+  arma::mat out(ev_sqdiff.n_rows, ev_sqdiff.n_cols, arma::fill::zeros);
+
+  if (fixed_value == 0.0 || out.n_rows == 0 || out.n_cols == 0) {
+    return out;
+  }
+
+  const double scale_descr = w_descr * fixed_value;
+  const double scale_lap = w_lap * fixed_value;
+  const double scale_comm = w_comm * fixed_value;
+
+  if (scale_descr != 0.0) {
+    out.row(0) += scale_descr * AAt.row(0);
+  }
+
+  if (scale_lap != 0.0) {
+    out(0, 0) += scale_lap * ev_sqdiff(0, 0);
+  }
+
+  if (scale_comm == 0.0 || op1_cube.n_slices == 0 || op2_cube.n_slices == 0) {
+    return out;
+  }
+
+  const arma::uword n_ops = std::min(op1_cube.n_slices, op2_cube.n_slices);
+  for (arma::uword i = 0; i < n_ops; ++i) {
+    const arma::mat& op1 = op1_cube.slice(i);
+    const arma::mat& op2 = op2_cube.slice(i);
+    const arma::vec u = op2.col(0);
+    const arma::vec r2 = op2.row(0).t();
+    const arma::vec c1 = op1.col(0);
+    const arma::vec v = op1.row(0).t();
+    const arma::vec g2 = op2.t() * u;
+    const arma::vec h1 = op1 * v;
+
+    out.col(0) += scale_comm * g2;
+    out -= scale_comm * (r2 * v.t());
+    out -= scale_comm * (u * c1.t());
+    out.row(0) += scale_comm * h1.t();
+  }
+
   return out;
 }
 
@@ -227,6 +284,22 @@ arma::mat fm_match_apply_operator_cpp(
 }
 
 // [[Rcpp::export]]
+arma::mat fm_match_apply_fixed_first_column_cpp(
+  const double fixed_value,
+  const arma::mat& AAt,
+  const arma::mat& ev_sqdiff,
+  const arma::cube& op1_cube,
+  const arma::cube& op2_cube,
+  const double w_descr,
+  const double w_lap,
+  const double w_comm
+) {
+  return apply_fixed_first_column_operator(
+    fixed_value, AAt, ev_sqdiff, op1_cube, op2_cube, w_descr, w_lap, w_comm
+  );
+}
+
+// [[Rcpp::export]]
 Rcpp::List fm_match_solve_cg_cpp(
   const arma::mat& C0,
   const arma::mat& rhs,
@@ -244,9 +317,18 @@ Rcpp::List fm_match_solve_cg_cpp(
   const double tol
 ) {
   arma::mat C = C0;
+  const bool lock_first_col = C.n_cols > 0;
+  arma::vec fixed_col;
+  if (lock_first_col) {
+    fixed_col = C0.col(0);
+  }
+
   arma::mat R = rhs - apply_operator(
     C, AAt, ev_sqdiff, op1_cube, op2_cube, op1_t_cube, op2_t_cube, w_descr, w_lap, w_comm
   );
+  if (lock_first_col) {
+    R.col(0).zeros();
+  }
   const bool use_prec = diag_precond.n_elem > 0;
   if (use_prec) {
     if (diag_precond.n_rows != C.n_rows || diag_precond.n_cols != C.n_cols) {
@@ -255,6 +337,9 @@ Rcpp::List fm_match_solve_cg_cpp(
   }
 
   arma::mat Z = use_prec ? (R / diag_precond) : R;
+  if (lock_first_col) {
+    Z.col(0).zeros();
+  }
   arma::mat P = Z;
 
   double rz = arma::accu(R % Z);
@@ -275,9 +360,12 @@ Rcpp::List fm_match_solve_cg_cpp(
   int iter_done = 0;
 
   for (int iter = 1; iter <= maxit; ++iter) {
-    const arma::mat HP = apply_operator(
+    arma::mat HP = apply_operator(
       P, AAt, ev_sqdiff, op1_cube, op2_cube, op1_t_cube, op2_t_cube, w_descr, w_lap, w_comm
     );
+    if (lock_first_col) {
+      HP.col(0).zeros();
+    }
     const double denom = arma::accu(P % HP);
 
     if (!std::isfinite(denom) || std::abs(denom) <= std::numeric_limits<double>::epsilon()) {
@@ -288,6 +376,9 @@ Rcpp::List fm_match_solve_cg_cpp(
 
     const double alpha = rz / denom;
     C += alpha * P;
+    if (lock_first_col) {
+      C.col(0) = fixed_col;
+    }
     const arma::mat R_new = R - alpha * HP;
     const double rr_new = arma::accu(R_new % R_new);
     iter_done = iter;
@@ -299,19 +390,34 @@ Rcpp::List fm_match_solve_cg_cpp(
 
     if (std::sqrt(rr_new) <= tol) {
       R = R_new;
+      if (lock_first_col) {
+        R.col(0).zeros();
+      }
       rz = use_prec ? arma::accu(R_new % (R_new / diag_precond)) : rr_new;
-      R = R_new;
       converged = true;
       break;
     }
 
-    const arma::mat Z_new = use_prec ? (R_new / diag_precond) : R_new;
+    arma::mat Z_new = use_prec ? (R_new / diag_precond) : R_new;
+    if (lock_first_col) {
+      Z_new.col(0).zeros();
+    }
     const double rz_new = arma::accu(R_new % Z_new);
     const double beta = rz_new / rz;
     P = Z_new + beta * P;
+    if (lock_first_col) {
+      P.col(0).zeros();
+    }
     R = R_new;
+    if (lock_first_col) {
+      R.col(0).zeros();
+    }
     Z = Z_new;
     rz = rz_new;
+  }
+
+  if (lock_first_col) {
+    C.col(0) = fixed_col;
   }
 
   return Rcpp::List::create(

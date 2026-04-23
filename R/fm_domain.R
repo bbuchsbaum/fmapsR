@@ -135,12 +135,16 @@ fm_new_domain <- function(
       stop("No basis vectors available for projection", call. = FALSE)
     }
     x_mat <- as.matrix(x)
-    M <- if (is.numeric(measure_obj)) {
-      Matrix::Diagonal(x = measure_obj)
-    } else {
-      measure_obj
+    phi <- basis_obj$vectors
+
+    if (is.numeric(measure_obj) && is.null(dim(measure_obj))) {
+      if (all(measure_obj == 1)) {
+        return(crossprod(phi, x_mat))
+      }
+      return(crossprod(phi, x_mat * measure_obj))
     }
-    t(basis_obj$vectors) %*% (M %*% x_mat)
+
+    t(phi) %*% (measure_obj %*% x_mat)
   }
 
   default_unprojector <- function(coef, basis_obj) {

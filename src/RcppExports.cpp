@@ -84,6 +84,24 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// fm_match_apply_fixed_first_column_cpp
+arma::mat fm_match_apply_fixed_first_column_cpp(const double fixed_value, const arma::mat& AAt, const arma::mat& ev_sqdiff, const arma::cube& op1_cube, const arma::cube& op2_cube, const double w_descr, const double w_lap, const double w_comm);
+RcppExport SEXP _fmapsR_fm_match_apply_fixed_first_column_cpp(SEXP fixed_valueSEXP, SEXP AAtSEXP, SEXP ev_sqdiffSEXP, SEXP op1_cubeSEXP, SEXP op2_cubeSEXP, SEXP w_descrSEXP, SEXP w_lapSEXP, SEXP w_commSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const double >::type fixed_value(fixed_valueSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type AAt(AAtSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type ev_sqdiff(ev_sqdiffSEXP);
+    Rcpp::traits::input_parameter< const arma::cube& >::type op1_cube(op1_cubeSEXP);
+    Rcpp::traits::input_parameter< const arma::cube& >::type op2_cube(op2_cubeSEXP);
+    Rcpp::traits::input_parameter< const double >::type w_descr(w_descrSEXP);
+    Rcpp::traits::input_parameter< const double >::type w_lap(w_lapSEXP);
+    Rcpp::traits::input_parameter< const double >::type w_comm(w_commSEXP);
+    rcpp_result_gen = Rcpp::wrap(fm_match_apply_fixed_first_column_cpp(fixed_value, AAt, ev_sqdiff, op1_cube, op2_cube, w_descr, w_lap, w_comm));
+    return rcpp_result_gen;
+END_RCPP
+}
 // fm_match_solve_cg_cpp
 Rcpp::List fm_match_solve_cg_cpp(const arma::mat& C0, const arma::mat& rhs, const arma::mat& AAt, const arma::mat& ev_sqdiff, const arma::cube& op1_cube, const arma::cube& op2_cube, const arma::cube& op1_t_cube, const arma::cube& op2_t_cube, const double w_descr, const double w_lap, const double w_comm, const arma::mat& diag_precond, const int maxit, const double tol);
 RcppExport SEXP _fmapsR_fm_match_solve_cg_cpp(SEXP C0SEXP, SEXP rhsSEXP, SEXP AAtSEXP, SEXP ev_sqdiffSEXP, SEXP op1_cubeSEXP, SEXP op2_cubeSEXP, SEXP op1_t_cubeSEXP, SEXP op2_t_cubeSEXP, SEXP w_descrSEXP, SEXP w_lapSEXP, SEXP w_commSEXP, SEXP diag_precondSEXP, SEXP maxitSEXP, SEXP tolSEXP) {
@@ -126,6 +144,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_fmapsR_fm_match_value_grad_cpp", (DL_FUNC) &_fmapsR_fm_match_value_grad_cpp, 11},
     {"_fmapsR_fm_match_energy_terms_cpp", (DL_FUNC) &_fmapsR_fm_match_energy_terms_cpp, 9},
     {"_fmapsR_fm_match_apply_operator_cpp", (DL_FUNC) &_fmapsR_fm_match_apply_operator_cpp, 10},
+    {"_fmapsR_fm_match_apply_fixed_first_column_cpp", (DL_FUNC) &_fmapsR_fm_match_apply_fixed_first_column_cpp, 8},
     {"_fmapsR_fm_match_solve_cg_cpp", (DL_FUNC) &_fmapsR_fm_match_solve_cg_cpp, 14},
     {"_fmapsR_fm_nearest_neighbor_index_cpp", (DL_FUNC) &_fmapsR_fm_nearest_neighbor_index_cpp, 2},
     {NULL, NULL, 0}

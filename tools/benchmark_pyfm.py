@@ -29,6 +29,7 @@ def main():
         from scipy.optimize import fmin_l_bfgs_b
         from pyFM.optimize.base_functions import energy_func_std, grad_energy_std
         from pyFM.refine.icp import icp_refine
+        from pyFM.spectral.convert import FM_to_p2p
     except Exception as exc:
         emit({"status": "error", "error": f"import_failure:{exc}"})
         return 0
@@ -37,12 +38,20 @@ def main():
         rng = np.random.default_rng(args.seed)
         t0 = time.perf_counter()
 
-        # Match R benchmark path: build sample-level descriptors and project
-        # into spectral coordinates before optimization.
-        evects1 = rng.normal(size=(args.n, args.k1))
-        evects2 = rng.normal(size=(args.n, args.k2))
+        theta = np.linspace(0.0, 2.0 * np.pi, args.n, endpoint=False)
+        coords = np.column_stack([np.cos(theta), np.sin(theta)])
+        shift = max(1, int(np.floor(0.15 * args.n)))
+        p21 = (np.arange(args.n) + shift) % args.n
+
+        p12 = np.zeros((args.n, args.n), dtype=float)
+        p12[np.arange(args.n), p21] = 1.0
+
+        q1, _ = np.linalg.qr(rng.normal(size=(args.n, args.k1)))
+        evects1 = q1[:, : args.k1]
+        evects2 = p12 @ evects1
+
         desc1_n = rng.normal(size=(args.n, args.p))
-        desc2_n = desc1_n + rng.normal(scale=0.01, size=(args.n, args.p))
+        desc2_n = p12 @ desc1_n + rng.normal(scale=0.01, size=(args.n, args.p))
         descr1 = evects1.T @ desc1_n
         descr2 = evects2.T @ desc2_n
 
@@ -53,8 +62,8 @@ def main():
             op2 = evects2.T @ (desc2_n[:, i, None] * evects2)
             list_descr.append((op1, op2))
 
-        ev1 = np.sort(np.abs(rng.normal(size=args.k1)) + 0.1)
-        ev2 = np.sort(np.abs(rng.normal(size=args.k2)) + 0.1)
+        ev1 = np.arange(1, args.k1 + 1, dtype=float)
+        ev2 = np.arange(1, args.k2 + 1, dtype=float)
         ev_sqdiff = (ev1[None, :] - ev2[:, None]) ** 2
         ev_sqdiff = ev_sqdiff / ev_sqdiff.sum()
 
@@ -102,7 +111,13 @@ def main():
         )
         t_icp = time.perf_counter() - t_icp0
         elapsed = time.perf_counter() - t0
-        _ = FM_icp
+        p2p = FM_to_p2p(FM_icp, evects1, evects2, use_adj=False, n_jobs=1)
+        d = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=2)
+        accuracy = float(np.mean(p2p == p21))
+        geodesic_mean = float(np.mean(d[p2p, p21]))
+        scale_vals = d[np.isfinite(d) & (d > 0)]
+        scale = float(np.mean(scale_vals)) if scale_vals.size > 0 else 1.0
+        geodesic_norm = geodesic_mean / max(scale, 1e-12)
 
         emit(
             {
@@ -112,6 +127,8 @@ def main():
                 "runtime_opt_sec": f"{t_opt:.9f}",
                 "runtime_icp_sec": f"{t_icp:.9f}",
                 "objective": f"{float(out[1]):.9f}",
+                "accuracy": f"{accuracy:.9f}",
+                "geodesic_normalized_mean": f"{geodesic_norm:.9f}",
                 "funcalls": str(out[2].get("funcalls", "")),
                 "nit": str(out[2].get("nit", "")),
                 "warnflag": str(out[2].get("warnflag", "")),

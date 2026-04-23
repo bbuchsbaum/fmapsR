@@ -38,6 +38,7 @@ parity_tool_path <- function(filename) {
 }
 
 source(parity_tool_path("benchmark_config.R"), local = environment())
+source(parity_tool_path("release_claim_helpers.R"), local = environment())
 
 parity_python_candidates <- function() {
   raw <- c(
@@ -540,11 +541,18 @@ parity_write_report <- function(report, output_dir = "benchmarks/parity") {
   saveRDS(report, latest_rds_path)
 
   rows <- report$scenario_results
+  pyfm_commit <- if (is.null(report$metadata$pyfm_vendor_commit)) NA_character_ else report$metadata$pyfm_vendor_commit
+  pyfm_branch <- if (is.null(report$metadata$pyfm_vendor_branch)) NA_character_ else report$metadata$pyfm_vendor_branch
+  pyfm_remote <- if (is.null(report$metadata$pyfm_vendor_remote)) NA_character_ else report$metadata$pyfm_vendor_remote
+
   lines <- c(
     "# Parity Benchmark (fmapsR vs pyFM)",
     "",
     sprintf("- Timestamp: %s", report$metadata$timestamp),
     sprintf("- Platform: %s", report$metadata$platform),
+    sprintf("- Vendored pyFM commit: %s", as.character(pyfm_commit)),
+    sprintf("- Vendored pyFM branch: %s", as.character(pyfm_branch)),
+    sprintf("- Vendored pyFM remote: %s", as.character(pyfm_remote)),
     sprintf("- Scenarios: %s", paste(report$metadata$scenarios, collapse = ",")),
     sprintf("- R runs/scenario: %d", report$metadata$r_runs),
     sprintf("- pyFM runs/scenario: %d", report$metadata$py_runs),
@@ -631,6 +639,7 @@ main <- function() {
   opts <- parse_args(commandArgs(trailingOnly = TRUE))
   root <- parity_find_repo_root()
   load_info <- parity_load_fmaps_package(root = root, target_env = globalenv())
+  pyfm_vendor <- release_pyfm_vendor_info(root)
   scenarios <- default_scenarios()
 
   if (!all(opts$scenarios %in% names(scenarios))) {
@@ -685,6 +694,9 @@ main <- function() {
       py_icp_nit = opts$py_icp_nit,
       warmup = opts$warmup,
       seed = opts$seed,
+      pyfm_vendor_commit = pyfm_vendor$commit,
+      pyfm_vendor_branch = pyfm_vendor$branch,
+      pyfm_vendor_remote = pyfm_vendor$remote,
       package_load_mode = load_info$mode,
       package_load_error = load_info$load_error
     ),

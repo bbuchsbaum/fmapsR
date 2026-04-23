@@ -15,6 +15,13 @@ weighted_least_squares <- function(X, Y, weights = NULL) {
   }
 
   if (is.null(weights)) {
+    gram <- crossprod(X)
+    if (ncol(X) > 0L) {
+      deviation <- max(abs(gram - diag(1, nrow = ncol(X), ncol = ncol(X))))
+      if (is.finite(deviation) && deviation <= 1e-8) {
+        return(crossprod(X, Y))
+      }
+    }
     return(solve_or_pinv(X, Y))
   }
 
@@ -26,6 +33,14 @@ weighted_least_squares <- function(X, Y, weights = NULL) {
   sqrt_w <- sqrt(pmax(w, 0))
   Xw <- X * sqrt_w
   Yw <- Y * sqrt_w
+
+  gram <- crossprod(Xw)
+  if (ncol(Xw) > 0L) {
+    deviation <- max(abs(gram - diag(1, nrow = ncol(Xw), ncol = ncol(Xw))))
+    if (is.finite(deviation) && deviation <= 1e-8) {
+      return(crossprod(Xw, Yw))
+    }
+  }
 
   solve_or_pinv(Xw, Yw)
 }
@@ -42,6 +57,21 @@ prepare_weighted_ls_solver <- function(X, weights = NULL) {
   }
 
   if (is.null(weights)) {
+    gram <- crossprod(X)
+    if (ncol(X) > 0L) {
+      deviation <- max(abs(gram - diag(1, nrow = ncol(X), ncol = ncol(X))))
+      if (is.finite(deviation) && deviation <= 1e-8) {
+        Xt <- t(X)
+        return(function(Y) {
+          Y <- as.matrix(Y)
+          if (nrow(Y) != nrow(X)) {
+            stop("`Y` row count must match `X` row count", call. = FALSE)
+          }
+          Xt %*% Y
+        })
+      }
+    }
+
     qr_x <- qr(X)
     return(function(Y) {
       Y <- as.matrix(Y)
@@ -63,6 +93,22 @@ prepare_weighted_ls_solver <- function(X, weights = NULL) {
 
   sqrt_w <- sqrt(pmax(w, 0))
   Xw <- X * sqrt_w
+  gram <- crossprod(Xw)
+  if (ncol(Xw) > 0L) {
+    deviation <- max(abs(gram - diag(1, nrow = ncol(Xw), ncol = ncol(Xw))))
+    if (is.finite(deviation) && deviation <= 1e-8) {
+      Xw_t <- t(Xw)
+      return(function(Y) {
+        Y <- as.matrix(Y)
+        if (nrow(Y) != nrow(X)) {
+          stop("`Y` row count must match `X` row count", call. = FALSE)
+        }
+        Yw <- Y * sqrt_w
+        Xw_t %*% Yw
+      })
+    }
+  }
+
   qr_xw <- qr(Xw)
 
   function(Y) {

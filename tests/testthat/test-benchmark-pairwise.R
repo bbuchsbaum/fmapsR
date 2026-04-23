@@ -37,10 +37,14 @@ test_that("pairwise benchmark arg parser accepts stability options", {
 
   defaults <- env$parse_args(character())
   expect_equal(defaults$stability_seed, 2026L)
+  expect_identical(defaults$r_optimizer, "cg")
+  expect_equal(defaults$r_cg_maxit, 1L)
 
   opts <- env$parse_args(c(
     "--r-runs", "5",
     "--py-runs", "4",
+    "--r-optimizer", "lbfgsb",
+    "--r-cg-maxit", "3",
     "--target-ratio", "0.25",
     "--stability-margin", "0.03",
     "--stability-boot", "250",
@@ -50,6 +54,8 @@ test_that("pairwise benchmark arg parser accepts stability options", {
 
   expect_equal(opts$r_runs, 5L)
   expect_equal(opts$py_runs, 4L)
+  expect_identical(opts$r_optimizer, "lbfgsb")
+  expect_equal(opts$r_cg_maxit, 3L)
   expect_equal(opts$target_ratio, 0.25)
   expect_equal(opts$stability_margin, 0.03)
   expect_equal(opts$stability_boot, 250L)
@@ -156,6 +162,7 @@ test_that("pairwise report writer includes stability metadata", {
       median_runtime_sec = 0.5,
       mean_runtime_sec = 0.55,
       optimizer = "cg",
+      cg_maxit = 2L,
       kernel_backend = "cpp",
       median_objective = 1.0,
       mem_bytes = NA_real_
@@ -196,9 +203,11 @@ test_that("pairwise report writer includes stability metadata", {
   outputs <- env$write_report(report, output_dir = out_dir)
 
   expect_true(file.exists(outputs$rds))
+  expect_true(file.exists(outputs$latest_rds))
   expect_true(file.exists(outputs$markdown))
 
   md <- readLines(outputs$markdown, warn = FALSE)
+  expect_true(any(grepl("CG maxit", md, fixed = TRUE)))
   expect_true(any(grepl("Stable target met", md, fixed = TRUE)))
   expect_true(any(grepl("Stability decision", md, fixed = TRUE)))
   expect_true(any(grepl("Runtime improvement bootstrap samples", md, fixed = TRUE)))

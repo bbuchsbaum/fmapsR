@@ -4,8 +4,16 @@ compute_descriptor_operators <- function(domain, descriptors) {
     stop("Basis vectors are required to build descriptor operators", call. = FALSE)
   }
 
-  M <- fm_measure_matrix(domain)
-  pinv <- t(phi) %*% M
+  if (is.numeric(domain$measure) && is.null(dim(domain$measure))) {
+    pinv <- if (all(domain$measure == 1)) {
+      t(phi)
+    } else {
+      t(phi) * domain$measure
+    }
+  } else {
+    M <- fm_measure_matrix(domain)
+    pinv <- t(phi) %*% M
+  }
 
   lapply(seq_len(ncol(descriptors)), function(i) {
     as.matrix(pinv %*% (descriptors[, i] * phi))
@@ -61,8 +69,16 @@ make_descriptor_stream <- function(domain, descriptors) {
   if (is.null(phi)) {
     stop("Basis vectors are required to build descriptor operators", call. = FALSE)
   }
-  M <- fm_measure_matrix(domain)
-  pinv <- t(phi) %*% M
+  if (is.numeric(domain$measure) && is.null(dim(domain$measure))) {
+    pinv <- if (all(domain$measure == 1)) {
+      t(phi)
+    } else {
+      t(phi) * domain$measure
+    }
+  } else {
+    M <- fm_measure_matrix(domain)
+    pinv <- t(phi) %*% M
+  }
   list(
     phi = phi,
     pinv = pinv,
@@ -423,6 +439,21 @@ init_map <- function(k2, k1, init = c("zeros", "identity", "random")) {
   matrix(0, nrow = k2, ncol = k1)
 }
 
+fixed_first_column <- function(source, target, k2) {
+  col <- numeric(k2)
+  if (k2 < 1L) {
+    return(col)
+  }
+
+  source_weights <- extract_measure_weights(source)
+  target_weights <- extract_measure_weights(target)
+  source_mass <- if (is.null(source_weights)) source$n_samples else sum(source_weights)
+  target_mass <- if (is.null(target_weights)) target$n_samples else sum(target_weights)
+  area_ratio <- sqrt(target_mass / max(source_mass, 1e-12))
+  col[1] <- area_ratio
+  col
+}
+
 #' Fit a Pairwise Functional Map
 #'
 #' @param source Source `fm_domain` with basis and descriptors.
@@ -439,6 +470,9 @@ init_map <- function(k2, k1, init = c("zeros", "identity", "random")) {
 #' @param descriptor_batch_size Optional descriptor chunk size for commutativity
 #'   operator streaming. Use smaller values to reduce peak memory when many
 #'   descriptors are used.
+#' @param compute_objective Whether to compute the final objective breakdown
+#'   after fitting. Disable to skip post-hoc diagnostics when only the map is
+#'   needed.
 #' @param trace Whether to print optimizer traces.
 #'
 #' @return An `fm_fit` object with map, diagnostics, and objective breakdown.
@@ -455,6 +489,7 @@ fm_match <- function(
   cg_maxit = NULL,
   kernel_backend = c("auto", "r", "cpp"),
   descriptor_batch_size = NULL,
+  compute_objective = TRUE,
   trace = FALSE
 ) {
   if (!inherits(source, "fm_domain") || !inherits(target, "fm_domain")) {
@@ -484,6 +519,7 @@ fm_match <- function(
   optimizer <- match.arg(optimizer)
   kernel_backend <- resolve_kernel_backend(kernel_backend)
   descriptor_batch_size <- normalize_descriptor_batch_size(descriptor_batch_size, ncol(src_desc))
+  compute_objective <- isTRUE(compute_objective)
 
   k1 <- source$basis$k
   k2 <- target$basis$k
@@ -559,6 +595,9 @@ fm_match <- function(
   }
 
   C0 <- init_map(k2 = k2, k1 = k1, init = init)
+  if (k1 >= 1L) {
+    C0[, 1] <- fixed_first_column(source, target, k2 = k2)
+  }
   if (optimizer == "cg") {
     if (is.null(cg_maxit)) {
       # Keep a practical default budget: enough for moderate convergence
@@ -586,10 +625,59 @@ fm_match <- function(
     }
     diag_precond <- pmax(diag_precond, 1e-8)
 
+    fixed_col <- if (k1 >= 1L) C0[, 1] else numeric(0)
+    fixed_C <- matrix(0, nrow = k2, ncol = k1)
+    C0_free <- C0
+    AAt <- NULL
     if (kernel_backend == "cpp") {
       AAt <- A %*% t(A)
+    }
+    if (k1 >= 1L) {
+      fixed_C[, 1] <- fixed_col
+      C0_free[, 1] <- 0
+      rhs <- rhs - {
+        if (kernel_backend == "cpp") {
+          if (length(fixed_col) == 1L || all(abs(fixed_col[-1]) <= sqrt(.Machine$double.eps))) {
+            fm_match_apply_fixed_first_column_cpp(
+              fixed_value = fixed_col[[1]],
+              AAt = AAt,
+              ev_sqdiff = ev_sqdiff,
+              op1_cube = src_ops_cpp,
+              op2_cube = tgt_ops_cpp,
+              w_descr = penalties$descr,
+              w_lap = penalties$lap,
+              w_comm = penalties$comm
+            )
+          } else {
+            fm_match_apply_operator_cpp(
+              C = fixed_C,
+              AAt = AAt,
+              ev_sqdiff = ev_sqdiff,
+              op1_cube = src_ops_cpp,
+              op2_cube = tgt_ops_cpp,
+              op1_t_cube = src_ops_t_cpp,
+              op2_t_cube = tgt_ops_t_cpp,
+              w_descr = penalties$descr,
+              w_lap = penalties$lap,
+              w_comm = penalties$comm
+            )
+          }
+        } else {
+          apply_operator_fixed <- make_operator_apply(
+            A = A,
+            comm_ctx = comm_ctx,
+            ev_sqdiff = ev_sqdiff,
+            penalties = penalties
+          )
+          apply_operator_fixed(fixed_C)
+        }
+      }
+      rhs[, 1] <- 0
+    }
+
+    if (kernel_backend == "cpp") {
       sol <- fm_match_solve_cg_cpp(
-        C0 = C0,
+        C0 = C0_free,
         rhs = rhs,
         AAt = AAt,
         ev_sqdiff = ev_sqdiff,
@@ -611,17 +699,37 @@ fm_match <- function(
         ev_sqdiff = ev_sqdiff,
         penalties = penalties
       )
-      sol <- solve_cg(
-        C0,
-        rhs,
-        apply_operator = apply_operator,
-        maxit = cg_maxit,
-        tol = cg_tol,
-        diag_precond = diag_precond
-      )
+      if (k1 >= 1L) {
+        apply_operator_locked <- function(C) {
+          out <- apply_operator(C)
+          out[, 1] <- 0
+          out
+        }
+        sol <- solve_cg(
+          C0_free,
+          rhs,
+          apply_operator = apply_operator_locked,
+          maxit = cg_maxit,
+          tol = cg_tol,
+          diag_precond = diag_precond
+        )
+        sol$C[, 1] <- fixed_col
+      } else {
+        sol <- solve_cg(
+          C0,
+          rhs,
+          apply_operator = apply_operator,
+          maxit = cg_maxit,
+          tol = cg_tol,
+          diag_precond = diag_precond
+        )
+      }
     }
 
     C <- sol$C
+    if (k1 >= 1L) {
+      C[, 1] <- fixed_col
+    }
 
     if (isTRUE(sol$converged)) {
       conv_code <- 0L
@@ -667,6 +775,20 @@ fm_match <- function(
       fn = objective$fn,
       gr = objective$gr,
       method = "L-BFGS-B",
+      lower = {
+        lo <- rep(-Inf, length(C0))
+        if (k1 >= 1L) {
+          lo[seq_len(k2)] <- C0[, 1]
+        }
+        lo
+      },
+      upper = {
+        hi <- rep(Inf, length(C0))
+        if (k1 >= 1L) {
+          hi[seq_len(k2)] <- C0[, 1]
+        }
+        hi
+      },
       control = list(maxit = maxit, trace = if (isTRUE(trace)) 1 else 0)
     )
 
@@ -676,33 +798,38 @@ fm_match <- function(
     counts <- opt$counts
   }
 
-  if (kernel_backend == "cpp") {
-    term_vec <- fm_match_energy_terms_cpp(
-      C = C,
-      A = A,
-      B = B,
-      ev_sqdiff = ev_sqdiff,
-      op1_cube = src_ops_cpp,
-      op2_cube = tgt_ops_cpp,
-      w_descr = penalties$descr,
-      w_lap = penalties$lap,
-      w_comm = penalties$comm
-    )
-    terms <- list(
-      descr = as.numeric(term_vec$descr),
-      lap = as.numeric(term_vec$lap),
-      comm = as.numeric(term_vec$comm)
-    )
+  if (compute_objective) {
+    if (kernel_backend == "cpp") {
+      term_vec <- fm_match_energy_terms_cpp(
+        C = C,
+        A = A,
+        B = B,
+        ev_sqdiff = ev_sqdiff,
+        op1_cube = src_ops_cpp,
+        op2_cube = tgt_ops_cpp,
+        w_descr = penalties$descr,
+        w_lap = penalties$lap,
+        w_comm = penalties$comm
+      )
+      terms <- list(
+        descr = as.numeric(term_vec$descr),
+        lap = as.numeric(term_vec$lap),
+        comm = as.numeric(term_vec$comm)
+      )
+    } else {
+      terms <- energy_breakdown(C, A, B, comm_ctx, ev_sqdiff, penalties)
+    }
   } else {
-    terms <- energy_breakdown(C, A, B, comm_ctx, ev_sqdiff, penalties)
+    terms <- list(descr = NA_real_, lap = NA_real_, comm = NA_real_)
   }
 
   diagnostics <- list(
     convergence = conv_code,
     message = conv_msg,
     counts = counts,
-    total_objective = sum(unlist(terms)),
+    total_objective = if (compute_objective) sum(unlist(terms)) else NA_real_,
     objective_terms = terms,
+    objective_computed = compute_objective,
     optimizer = optimizer,
     kernel_backend = kernel_backend,
     descriptor_batch_size = descriptor_batch_size,

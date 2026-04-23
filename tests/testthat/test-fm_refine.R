@@ -90,6 +90,12 @@ test_that("weighted least squares helpers validate dimensions and weights", {
 
   solver_w <- prepare_weighted_ls_solver(X, weights = c(1, 1, 1))
   expect_equal(as.numeric(solver_w(Y)), as.numeric(Y))
+
+  Q <- qr.Q(qr(matrix(rnorm(18), nrow = 6, ncol = 3)))
+  Y2 <- matrix(rnorm(12), nrow = 6, ncol = 2)
+  expect_equal(weighted_least_squares(Q, Y2), crossprod(Q, Y2), tolerance = 1e-10)
+  solver_q <- prepare_weighted_ls_solver(Q)
+  expect_equal(solver_q(Y2), crossprod(Q, Y2), tolerance = 1e-10)
 })
 
 test_that("subsampling and measure extraction helpers handle edge cases", {

@@ -7,7 +7,7 @@
 fm_package_info()
 }
 \value{
-A named list describing the current package scaffold state.
+A named list describing the current package development state.
 }
 \description{
 Package Metadata Helper

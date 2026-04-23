@@ -17,6 +17,10 @@ fm_match_apply_operator_cpp <- function(C, AAt, ev_sqdiff, op1_cube, op2_cube, o
     .Call(`_fmapsR_fm_match_apply_operator_cpp`, C, AAt, ev_sqdiff, op1_cube, op2_cube, op1_t_cube, op2_t_cube, w_descr, w_lap, w_comm)
 }
 
+fm_match_apply_fixed_first_column_cpp <- function(fixed_value, AAt, ev_sqdiff, op1_cube, op2_cube, w_descr, w_lap, w_comm) {
+    .Call(`_fmapsR_fm_match_apply_fixed_first_column_cpp`, fixed_value, AAt, ev_sqdiff, op1_cube, op2_cube, w_descr, w_lap, w_comm)
+}
+
 fm_match_solve_cg_cpp <- function(C0, rhs, AAt, ev_sqdiff, op1_cube, op2_cube, op1_t_cube, op2_t_cube, w_descr, w_lap, w_comm, diag_precond, maxit, tol) {
     .Call(`_fmapsR_fm_match_solve_cg_cpp`, C0, rhs, AAt, ev_sqdiff, op1_cube, op2_cube, op1_t_cube, op2_t_cube, w_descr, w_lap, w_comm, diag_precond, maxit, tol)
 }

@@ -11,46 +11,62 @@ vignette: >
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
-This example treats each sample as a multidimensional observation vector rather than a mesh vertex.
+This example treats each sample as a multidimensional observation vector rather than a mesh vertex. The two domains below are different feature-space views of the same latent samples, with a known row permutation.
 
 ```{r}
 library(fmapsR)
 set.seed(123)
 
-make_multidomain <- function(seed, n = 30, p = 12, k = 8) {
-  set.seed(seed)
-  X <- matrix(rnorm(n * p), nrow = n, ncol = p)
+make_view <- function(latent, weight, noise_sd = 0.02) {
+  scale(latent %*% weight + matrix(rnorm(nrow(latent) * ncol(weight), sd = noise_sd), nrow(latent)))
+}
 
-  # Choose either covariance or kNN-laplacian operator families.
+make_multidomain <- function(X, k = 8) {
   operator <- fm_operator(X, method = "knn_laplacian", k = 7)
 
   fm_basis(
-    fm_domain_generic(n_samples = n, data = X, operator = operator),
+    fm_domain_generic(n_samples = nrow(X), data = X, operator = operator),
     k = k,
     solver = "base",
     cache = FALSE
   )
 }
 
-A <- make_multidomain(1)
-B <- make_multidomain(2)
+n <- 30
+p <- 12
+t <- seq(0, 2 * pi, length.out = n)
+latent <- cbind(sin(t), cos(t), sin(2 * t), cos(2 * t))
 
-# Validation checks for non-shape operators
+W1 <- matrix(rnorm(ncol(latent) * p), ncol = p)
+W2 <- W1 + 0.05 * matrix(rnorm(ncol(latent) * p), ncol = p)
+
+truth <- c(4:n, 1:3)
+X_A <- make_view(latent, W1)
+X_B <- make_view(latent[truth, , drop = FALSE], W2)
+
+A <- make_multidomain(X_A)
+B <- make_multidomain(X_B)
+
 stopifnot(
   all(dim(A$operator) == c(A$n_samples, A$n_samples)),
   max(abs(A$operator - t(A$operator))) < 1e-8
 )
 
-desc_A <- A$data
-desc_B <- B$data
-
-fit <- fm_match(A, B, descriptors = list(source = desc_A, target = desc_B), penalties = list(descr = 1, lap = 1e-3, comm = 0.2), optimizer = "cg", cg_maxit = 6)
+fit <- fm_match(A, B, descriptors = list(source = X_A, target = X_B), penalties = list(descr = 1, lap = 1e-3, comm = 0.2), optimizer = "cg", cg_maxit = 6)
 fit <- fm_refine(fit, method = "icp", nit = 3)
 
-feature_A <- A$data[, 1]
-feature_B_hat <- fm_transfer(fit, feature_A)
+metrics <- fm_fit_metrics(fit, truth = truth)
+shared_signal <- latent[, 1] + 0.4 * latent[, 3]
+target_signal <- shared_signal[truth]
+signal_hat <- fm_transfer(fit, shared_signal)
+baseline_mse <- mean((mean(target_signal) - target_signal)^2)
 
-c(transfer_mse = mean((feature_B_hat - B$data[, 1])^2), p2p_cardinality = length(as_p2p(fit)))
+c(
+  exact_match_rate = mean(as_p2p(fit) == truth),
+  normalized_source_distance_error = metrics$geodesic$normalized_mean,
+  transfer_mse = mean((signal_hat - target_signal)^2),
+  baseline_mse = baseline_mse
+)
 ```
 
 ## Takeaway
@@ -60,4 +76,4 @@ The API does not assume shapes. As long as you define:
 1. Sample-wise descriptors (`n_samples x p`).
 2. A basis-friendly operator (`n_samples x n_samples`).
 
-you can run the full functional map pipeline.
+you can run the same match/refine/transfer pipeline on tabular or embedding-style data.

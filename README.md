@@ -58,6 +58,8 @@ Run a pairwise benchmark report (with configurable stability policy):
 Rscript tools/benchmark_pairwise.R --r-runs 3 --py-runs 3 --target-ratio 0.30 --stability-margin 0.02
 ```
 
+The pairwise benchmark defaults to the tuned `cg` solver path with `cg_maxit = 1` and performs two unmeasured warmup runs before recording timings, so the report reflects steady-state runtime rather than first-hit overhead.
+
 Pairwise reports include both raw target status and a stability-aware status. Borderline values inside the jitter band (`target ± margin`) are classified using bootstrap spread (`q25`) over independent R/pyFM runtime samples (after dropping one high outlier per side when at least 3 samples are available) to reduce flip-flopping near the threshold.
 
 Run parity benchmark report (runtime + quality vs pyFM, multi-scenario):
@@ -71,6 +73,20 @@ Enforce the parity quality gate (accuracy/geodesic + objective/map deltas):
 ```bash
 Rscript tools/check_parity_gate.R --report benchmarks/parity/parity-benchmark-latest.rds --required easy,noisy
 ```
+
+Run the combined release claim benchmark (quality parity + pairwise speed proof against vendored `pyFM`):
+
+```bash
+Rscript tools/benchmark_release_claim.R --output-dir benchmarks/release-claim
+```
+
+Enforce the combined release claim gate:
+
+```bash
+Rscript tools/check_release_claim.R --report benchmarks/release-claim/release-claim-latest.rds
+```
+
+The release claim uses the multi-scenario parity suite as the blocking speed-and-quality contract, with pairwise benchmarking retained as a diagnostic benchmark in the release report. Objective-gap reporting remains available in parity artifacts, but the default release gate uses accuracy, normalized geodesic error, and map residuals as the required quality metrics.
 
 Recommend updated parity thresholds from historical reports:
 

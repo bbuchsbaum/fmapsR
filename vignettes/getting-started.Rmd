@@ -11,31 +11,110 @@ vignette: >
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
-`fmapsR` provides a high-level functional maps interface that is not restricted to shape meshes. The same API is used for:
+`fmapsR` is organized around a short object flow:
 
-1. Pairwise functional map estimation.
-2. Multi-dataset synchronization and consensus maps.
-3. Generic multidimensional datasets (time-series, tensors, tabular embeddings).
+1. Build a domain with samples, an operator, and optional adjacency.
+2. Add a basis with `fm_basis()`.
+3. Fit a map with `fm_match()`.
+4. Refine, transfer, or score that map with `fm_refine()`, `fm_transfer()`, `as_p2p()`, and `fm_fit_metrics()`.
 
-## Core API surface
+This vignette shows that flow on a small pairwise example with a known correspondence, then points to the next articles in the recommended order.
+
+## First successful fit
 
 ```{r}
 library(fmapsR)
+set.seed(7)
+
+make_path_adj <- function(n) {
+  A <- matrix(0, nrow = n, ncol = n)
+  A[cbind(1:(n - 1), 2:n)] <- 1
+  A[cbind(2:n, 1:(n - 1))] <- 1
+  A
+}
+
+make_toy_pair <- function(n = 24, shift = 2, k = 10, noise_sd = 0.005) {
+  A <- make_path_adj(n)
+  op <- diag(rowSums(A)) - A
+
+  theta <- seq(0, 1, length.out = n)
+  source_data <- cbind(
+    theta,
+    sin(2 * pi * theta),
+    cos(2 * pi * theta),
+    sin(4 * pi * theta),
+    cos(6 * pi * theta)
+  )
+
+  truth <- c((shift + 1):n, seq_len(shift))
+  target_data <- source_data[truth, , drop = FALSE] +
+    matrix(rnorm(n * ncol(source_data), sd = noise_sd), nrow = n)
+
+  source <- fm_basis(
+    fm_domain_generic(
+      n_samples = n,
+      data = source_data,
+      operator = op,
+      adjacency = A
+    ),
+    k = k,
+    solver = "base",
+    cache = FALSE
+  )
+
+  target <- fm_basis(
+    fm_domain_generic(
+      n_samples = n,
+      data = target_data,
+      operator = op[truth, truth],
+      adjacency = A[truth, truth]
+    ),
+    k = k,
+    solver = "base",
+    cache = FALSE
+  )
+
+  list(source = source, target = target, truth = truth)
+}
+
+toy <- make_toy_pair()
+desc_source <- cbind(scale(toy$source$data), fm_descriptor_hks(toy$source, n_times = 8))
+desc_target <- cbind(scale(toy$target$data), fm_descriptor_hks(toy$target, n_times = 8))
+
+fit <- fm_match(
+  toy$source,
+  toy$target,
+  descriptors = list(source = desc_source, target = desc_target),
+  optimizer = "cg",
+  cg_maxit = 6
+)
+fit <- fm_refine(fit, method = "icp", nit = 5)
+
+p2p <- as_p2p(fit)
+metrics <- fm_fit_metrics(fit, truth = toy$truth)
 
 c(
-  "fm_domain()", "fm_basis()", "fm_match()", "fm_refine()",
-  "fm_network()", "fm_sync()", "fm_consensus()", "fm_transfer()"
+  exact_match_rate = mean(p2p == toy$truth),
+  coverage_ratio = metrics$coverage$ratio,
+  normalized_geodesic = metrics$geodesic$normalized_mean
 )
 ```
 
-## Vignettes in this package
-
-1. `pairwise-functional-maps`: concise pairwise map workflow.
-2. `multi-dataset-sync-consensus`: synchronization + consensus across multiple datasets.
-3. `non-shape-multidimensional-data`: functional maps on generic multidimensional data.
-
-## Package metadata
+The fitted object is now the hub for the next operations:
 
 ```{r}
-fm_package_info()
+signal_hat <- fm_transfer(fit, toy$source$data[, 2])
+
+c(
+  transfer_mse = mean((signal_hat - toy$target$data[, 2])^2),
+  unique_source_matches = length(unique(p2p))
+)
 ```
+
+## Recommended sequence
+
+1. `pairwise-functional-maps`: the same workflow in more detail, including continuity and transfer diagnostics.
+2. `multi-dataset-sync-consensus`: how to combine pairwise maps into a network and reduce cycle inconsistency.
+3. `non-shape-multidimensional-data`: how to use the same API on generic observation matrices rather than meshes.
+
+If you only remember one object transition, make it this one: `fm_basis()` gives you domains with eigenvectors, and `fm_match()` turns those into an `fm_fit` that you can refine, inspect, or apply.

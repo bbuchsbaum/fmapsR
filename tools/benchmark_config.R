@@ -38,6 +38,13 @@ benchmark_pairwise_problem_spec <- function() {
   )
 }
 
+benchmark_pairwise_solver_defaults <- function() {
+  list(
+    optimizer = "cg",
+    cg_maxit = 1L
+  )
+}
+
 benchmark_network_defaults <- function() {
   list(
     scales = c(10L, 25L, 50L),
@@ -78,5 +85,17 @@ benchmark_parity_gate_thresholds <- function() {
       noisy = 0.08,
       partial = 0.10
     )
+  )
+}
+
+benchmark_release_claim_thresholds <- function() {
+  list(
+    required_quality_scenarios = c("easy", "noisy", "partial"),
+    speed_source = "parity",
+    speed_target_ratio = 0.30,
+    speed_stability_margin = 0.02,
+    require_stable_speed = FALSE,
+    parity_r_cg_maxit = 1L,
+    require_objective_parity = FALSE
   )
 }

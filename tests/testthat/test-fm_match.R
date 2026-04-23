@@ -46,8 +46,30 @@ test_that("fm_match supports disabling individual objective terms", {
   expect_equal(fit$diagnostics$objective_terms$comm, 0)
 })
 
+test_that("fm_match can skip post-hoc objective diagnostics", {
+  source <- make_test_domain(6)
+  target <- make_test_domain(6)
+
+  src_desc <- cbind(seq_len(6), seq_len(6)^2)
+  tgt_desc <- src_desc
+
+  fit <- fm_match(
+    source = source,
+    target = target,
+    descriptors = list(source = src_desc, target = tgt_desc),
+    penalties = list(descr = 1, lap = 1e-3, comm = 1e-1),
+    init = "identity",
+    maxit = 30,
+    compute_objective = FALSE
+  )
+
+  expect_false(isTRUE(fit$diagnostics$objective_computed))
+  expect_true(is.na(fit$diagnostics$total_objective))
+  expect_true(all(vapply(fit$diagnostics$objective_terms, is.na, logical(1))))
+})
+
 test_that("fm_match supports compiled kernel backend with parity", {
-  skip_if_not(exists("fm_match_solve_cg_cpp", mode = "function"))
+  skip_if_not(exists("fm_match_solve_cg_cpp", envir = asNamespace("fmapsR"), mode = "function", inherits = FALSE))
 
   source <- make_test_domain(10)
   target <- make_test_domain(10)
@@ -84,6 +106,17 @@ test_that("fm_match supports compiled kernel backend with parity", {
   expect_identical(fit_cpp$diagnostics$kernel_backend, "cpp")
   expect_equal(fit_cpp$diagnostics$total_objective, fit_r$diagnostics$total_objective, tolerance = 1e-8)
   expect_equal(fit_cpp$C, fit_r$C, tolerance = 1e-8)
+})
+
+test_that("fixed first column uses positive area ratio only", {
+  source <- make_test_domain(6)
+  target <- make_test_domain(6)
+  target$basis$vectors[, 1] <- -target$basis$vectors[, 1]
+
+  col <- fmapsR:::fixed_first_column(source, target, k2 = target$basis$k)
+
+  expect_equal(col[[1]], 1)
+  expect_true(all(col[-1] == 0))
 })
 
 test_that("fm_match supports streamed descriptor batching for commutativity terms", {
@@ -217,9 +250,9 @@ test_that("streaming can force R backend when cpp kernels are available", {
   expect_identical(fit$diagnostics$kernel_backend, "r")
   expect_identical(fit$diagnostics$commutativity_mode, "stream")
 
-  has_cpp <- exists("fm_match_solve_cg_cpp", mode = "function") &&
-    exists("fm_match_value_grad_cpp", mode = "function") &&
-    exists("fm_match_energy_terms_cpp", mode = "function")
+  has_cpp <- exists("fm_match_solve_cg_cpp", envir = asNamespace("fmapsR"), mode = "function", inherits = FALSE) &&
+    exists("fm_match_value_grad_cpp", envir = asNamespace("fmapsR"), mode = "function", inherits = FALSE) &&
+    exists("fm_match_energy_terms_cpp", envir = asNamespace("fmapsR"), mode = "function", inherits = FALSE)
 
   if (has_cpp) {
     expect_match(fit$diagnostics$backend_note, "switched kernel backend")

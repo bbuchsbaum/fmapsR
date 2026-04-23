@@ -38,13 +38,17 @@ pairwise_tool_path <- function(filename) {
 }
 
 source(pairwise_tool_path("benchmark_config.R"), local = environment())
+source(pairwise_tool_path("release_claim_helpers.R"), local = environment())
 
 parse_args <- function(args) {
   seed_cfg <- benchmark_seed_registry()
+  solver_cfg <- benchmark_pairwise_solver_defaults()
 
   out <- list(
     r_runs = 3L,
     py_runs = 3L,
+    r_optimizer = solver_cfg$optimizer,
+    r_cg_maxit = solver_cfg$cg_maxit,
     target_ratio = 0.30,
     stability_margin = 0.02,
     stability_boot = 500L,
@@ -62,6 +66,12 @@ parse_args <- function(args) {
       i <- i + 2L
     } else if (key == "--py-runs" && !is.null(val)) {
       out$py_runs <- as.integer(val)
+      i <- i + 2L
+    } else if (key == "--r-optimizer" && !is.null(val)) {
+      out$r_optimizer <- val
+      i <- i + 2L
+    } else if (key == "--r-cg-maxit" && !is.null(val)) {
+      out$r_cg_maxit <- as.integer(val)
       i <- i + 2L
     } else if (key == "--target-ratio" && !is.null(val)) {
       out$target_ratio <- as.numeric(val)
@@ -91,6 +101,10 @@ parse_args <- function(args) {
   }
   if (!is.finite(out$stability_boot) || out$stability_boot < 50L) {
     stop("`--stability-boot` must be >= 50", call. = FALSE)
+  }
+  out$r_optimizer <- match.arg(out$r_optimizer, c("cg", "lbfgsb"))
+  if (out$r_optimizer == "cg" && (!is.finite(out$r_cg_maxit) || out$r_cg_maxit < 1L)) {
+    stop("`--r-cg-maxit` must be >= 1 when `--r-optimizer cg` is used", call. = FALSE)
   }
 
   out
@@ -227,42 +241,121 @@ assess_runtime_target <- function(improvement, improvement_samples, target_ratio
   }
 }
 
+compute_posthoc_match_objective <- function(source, target, src_desc, tgt_desc, C, penalties, kernel_backend) {
+  A <- as.matrix(fm_project(source, src_desc))
+  B <- as.matrix(fm_project(target, tgt_desc))
+
+  ev1 <- source$basis$values
+  ev2 <- target$basis$values
+  k1 <- ncol(C)
+  k2 <- nrow(C)
+  ev_sqdiff <- (matrix(ev2[seq_len(k2)], nrow = k2, ncol = k1) -
+    matrix(ev1[seq_len(k1)], nrow = k2, ncol = k1, byrow = TRUE))^2
+
+  if (sum(ev_sqdiff) > 0) {
+    ev_sqdiff <- ev_sqdiff / sum(ev_sqdiff)
+  }
+
+  if (identical(kernel_backend, "cpp")) {
+    src_ops_cpp <- array(numeric(0), dim = c(0L, 0L, 0L))
+    tgt_ops_cpp <- array(numeric(0), dim = c(0L, 0L, 0L))
+    if (penalties$comm > 0) {
+      src_ops_cpp <- compute_descriptor_operators_cube(source, src_desc)
+      tgt_ops_cpp <- compute_descriptor_operators_cube(target, tgt_desc)
+    }
+    terms <- fm_match_energy_terms_cpp(
+      C = C,
+      A = A,
+      B = B,
+      ev_sqdiff = ev_sqdiff,
+      op1_cube = src_ops_cpp,
+      op2_cube = tgt_ops_cpp,
+      w_descr = penalties$descr,
+      w_lap = penalties$lap,
+      w_comm = penalties$comm
+    )
+    return(as.numeric(terms$descr) + as.numeric(terms$lap) + as.numeric(terms$comm))
+  }
+
+  comm_ctx <- list(mode = "none", n_batches = 0L)
+  if (penalties$comm > 0) {
+    comm_ctx <- list(
+      mode = "precomputed",
+      list_ops = pack_descriptor_operator_pairs(
+        compute_descriptor_operators(source, src_desc),
+        compute_descriptor_operators(target, tgt_desc)
+      ),
+      n_batches = 1L
+    )
+  }
+
+  sum(unlist(energy_breakdown(C, A, B, comm_ctx, ev_sqdiff, penalties)))
+}
+
 run_r_pipeline_once <- function(
   seed = benchmark_seed_registry()$pairwise_seed,
   n = benchmark_pairwise_problem_spec()$n,
   k = benchmark_pairwise_problem_spec()$k,
   p = benchmark_pairwise_problem_spec()$p,
   maxit = benchmark_pairwise_problem_spec()$maxit,
-  optimizer = "cg",
+  optimizer = benchmark_pairwise_solver_defaults()$optimizer,
+  cg_maxit = benchmark_pairwise_solver_defaults()$cg_maxit,
   kernel_backend = "auto"
 ) {
   set.seed(seed)
+  penalties <- list(descr = 1e-1, lap = 1e-3, comm = 1)
+  theta <- seq(0, 2 * pi, length.out = n + 1L)[-(n + 1L)]
+  coords <- cbind(cos(theta), sin(theta))
+  shift <- max(1L, floor(0.15 * n))
+  truth <- ((seq_len(n) + shift - 1L) %% n) + 1L
 
-  make_domain <- function() {
-    vals <- seq(0.5, 0.5 + n - 1)
-    op <- diag(vals)
-    dom <- fm_domain_generic(n_samples = n, operator = op)
-    fm_basis(dom, k = k, solver = "rspectra", cache = FALSE, seed = seed)
-  }
+  P12 <- matrix(0, nrow = n, ncol = n)
+  P12[cbind(seq_len(n), truth)] <- 1
 
-  source <- make_domain()
-  target <- make_domain()
+  q <- qr.Q(qr(matrix(rnorm(n * k), nrow = n, ncol = k)))
+  phi1 <- q[, seq_len(k), drop = FALSE]
+  phi2 <- P12 %*% phi1
+  vals <- seq_len(k)
+
+  source <- fm_domain_generic(
+    n_samples = n,
+    data = coords,
+    basis = list(vectors = phi1, values = vals, k = k)
+  )
+  target <- fm_domain_generic(
+    n_samples = n,
+    data = coords[truth, , drop = FALSE],
+    basis = list(vectors = phi2, values = vals, k = k)
+  )
 
   src_desc <- matrix(rnorm(n * p), nrow = n, ncol = p)
-  tgt_desc <- src_desc + matrix(rnorm(n * p, sd = 0.01), nrow = n, ncol = p)
+  tgt_desc <- P12 %*% src_desc + matrix(rnorm(n * p, sd = 0.01), nrow = n, ncol = p)
+  source_distance <- as.matrix(stats::dist(coords))
 
   t_match <- system.time({
     fit <- fm_match(
       source = source,
       target = target,
       descriptors = list(source = src_desc, target = tgt_desc),
-      penalties = list(descr = 1e-1, lap = 1e-3, comm = 1),
+      penalties = penalties,
       init = "identity",
       maxit = maxit,
       optimizer = optimizer,
-      kernel_backend = kernel_backend
+      cg_maxit = if (identical(optimizer, "cg")) cg_maxit else NULL,
+      kernel_backend = kernel_backend,
+      compute_objective = FALSE
     )
   })[["elapsed"]]
+
+  objective <- compute_posthoc_match_objective(
+    source = source,
+    target = target,
+    src_desc = src_desc,
+    tgt_desc = tgt_desc,
+    C = fit$C,
+    penalties = penalties,
+    kernel_backend = fit$diagnostics$kernel_backend
+  )
 
   t_refine <- system.time({
     fit_refined <- fm_refine(
@@ -273,13 +366,25 @@ run_r_pipeline_once <- function(
     )
   })[["elapsed"]]
 
+  p2p <- as_p2p(fit_refined)
+  metrics <- fm_fit_metrics(
+    fit_refined,
+    truth = truth,
+    source_distance = source_distance,
+    target_adjacency = NULL,
+    normalize = TRUE
+  )
+
   list(
     runtime_sec = t_match + t_refine,
     runtime_match_sec = t_match,
     runtime_refine_sec = t_refine,
     optimizer = fit$diagnostics$optimizer,
+    cg_maxit = if (identical(fit$diagnostics$optimizer, "cg")) as.integer(cg_maxit) else NA_integer_,
     kernel_backend = fit$diagnostics$kernel_backend,
-    objective = fit$diagnostics$total_objective,
+    objective = objective,
+    accuracy = mean(p2p == truth),
+    geodesic_normalized_mean = mean(metrics$geodesic$per_point, na.rm = TRUE) / metrics$geodesic$scale,
     refinement_last_delta = tail(fit_refined$diagnostics$refinement$deltas, 1),
     convergence = fit$diagnostics$convergence
   )
@@ -287,29 +392,45 @@ run_r_pipeline_once <- function(
 
 run_r_benchmark <- function(
   n_runs = 3L,
-  optimizer = "cg",
+  optimizer = benchmark_pairwise_solver_defaults()$optimizer,
+  cg_maxit = benchmark_pairwise_solver_defaults()$cg_maxit,
   kernel_backend = "auto",
   seed_offset = 40L,
   measure_memory = TRUE
 ) {
   warm_seed <- max(1L, as.integer(seed_offset) - 27L)
-  invisible(run_r_pipeline_once(seed = warm_seed, optimizer = optimizer, kernel_backend = kernel_backend))
+  for (warm_i in 0:1) {
+    invisible(run_r_pipeline_once(
+      seed = warm_seed + warm_i,
+      optimizer = optimizer,
+      cg_maxit = cg_maxit,
+      kernel_backend = kernel_backend
+    ))
+  }
 
   runs <- lapply(seq_len(n_runs), function(i) {
     run_r_pipeline_once(
       seed = seed_offset + i,
       optimizer = optimizer,
+      cg_maxit = cg_maxit,
       kernel_backend = kernel_backend
     )
   })
 
   runtimes <- vapply(runs, `[[`, numeric(1), "runtime_sec")
   objectives <- vapply(runs, `[[`, numeric(1), "objective")
+  accuracies <- vapply(runs, `[[`, numeric(1), "accuracy")
+  geodesics <- vapply(runs, `[[`, numeric(1), "geodesic_normalized_mean")
 
   mem_bytes <- NA_real_
   if (isTRUE(measure_memory) && requireNamespace("bench", quietly = TRUE)) {
     b <- bench::mark(
-      run_r_pipeline_once(seed = seed_offset + 37L, optimizer = optimizer, kernel_backend = kernel_backend),
+      run_r_pipeline_once(
+        seed = seed_offset + 37L,
+        optimizer = optimizer,
+        cg_maxit = cg_maxit,
+        kernel_backend = kernel_backend
+      ),
       iterations = 1,
       check = FALSE
     )
@@ -321,8 +442,11 @@ run_r_benchmark <- function(
     median_runtime_sec = median(runtimes),
     mean_runtime_sec = mean(runtimes),
     optimizer = runs[[1]]$optimizer,
+    cg_maxit = as.integer(runs[[1]]$cg_maxit),
     kernel_backend = runs[[1]]$kernel_backend,
     median_objective = median(objectives),
+    median_accuracy = median(accuracies),
+    median_geodesic_normalized_mean = median(geodesics),
     mem_bytes = mem_bytes
   )
 }
@@ -408,6 +532,8 @@ run_pyfm_baseline <- function(
   objectives <- vapply(runs, function(x) numeric_or_na(x$objective), numeric(1))
   runtime_opt <- vapply(runs, function(x) numeric_or_na(x$runtime_opt_sec), numeric(1))
   runtime_icp <- vapply(runs, function(x) numeric_or_na(x$runtime_icp_sec), numeric(1))
+  accuracies <- vapply(runs, function(x) numeric_or_na(x$accuracy), numeric(1))
+  geodesics <- vapply(runs, function(x) numeric_or_na(x$geodesic_normalized_mean), numeric(1))
 
   list(
     status = "ok",
@@ -419,6 +545,8 @@ run_pyfm_baseline <- function(
     runtime_opt_sec = median(runtime_opt, na.rm = TRUE),
     runtime_icp_sec = median(runtime_icp, na.rm = TRUE),
     objective = median(objectives, na.rm = TRUE),
+    accuracy = median(accuracies, na.rm = TRUE),
+    geodesic_normalized_mean = median(geodesics, na.rm = TRUE),
     py_runs = runs
   )
 }
@@ -428,9 +556,21 @@ write_report <- function(report, output_dir) {
 
   stamp <- format(Sys.time(), "%Y%m%d-%H%M%S")
   rds_path <- file.path(output_dir, paste0("pairwise-benchmark-", stamp, ".rds"))
+  latest_rds_path <- file.path(output_dir, "pairwise-benchmark-latest.rds")
   md_path <- file.path(output_dir, "pairwise-benchmark-latest.md")
 
   saveRDS(report, rds_path)
+  saveRDS(report, latest_rds_path)
+
+  pyfm_commit <- if (is.null(report$metadata$pyfm_vendor_commit)) NA_character_ else report$metadata$pyfm_vendor_commit
+  pyfm_branch <- if (is.null(report$metadata$pyfm_vendor_branch)) NA_character_ else report$metadata$pyfm_vendor_branch
+  pyfm_remote <- if (is.null(report$metadata$pyfm_vendor_remote)) NA_character_ else report$metadata$pyfm_vendor_remote
+  r_accuracy <- if (is.null(report$r_pipeline$median_accuracy)) NA_real_ else report$r_pipeline$median_accuracy
+  r_geodesic <- if (is.null(report$r_pipeline$median_geodesic_normalized_mean)) NA_real_ else report$r_pipeline$median_geodesic_normalized_mean
+  py_accuracy <- if (is.null(report$comparison$pyfm_accuracy)) NA_real_ else report$comparison$pyfm_accuracy
+  py_geodesic <- if (is.null(report$comparison$pyfm_geodesic_normalized_mean)) NA_real_ else report$comparison$pyfm_geodesic_normalized_mean
+  accuracy_delta <- if (is.null(report$comparison$accuracy_delta)) NA_real_ else report$comparison$accuracy_delta
+  geodesic_delta <- if (is.null(report$comparison$geodesic_delta)) NA_real_ else report$comparison$geodesic_delta
 
   lines <- c(
     "# Pairwise Benchmark",
@@ -438,6 +578,9 @@ write_report <- function(report, output_dir) {
     sprintf("- Timestamp: %s", report$metadata$timestamp),
     sprintf("- R version: %s", report$metadata$r_version),
     sprintf("- Platform: %s", report$metadata$platform),
+    sprintf("- Vendored pyFM commit: %s", as.character(pyfm_commit)),
+    sprintf("- Vendored pyFM branch: %s", as.character(pyfm_branch)),
+    sprintf("- Vendored pyFM remote: %s", as.character(pyfm_remote)),
     sprintf("- Target ratio: %s", as.character(report$metadata$target_ratio)),
     sprintf("- Stability margin: %s", as.character(report$metadata$stability_margin)),
     sprintf("- Stability bootstrap samples: %s", as.character(report$metadata$stability_boot)),
@@ -446,8 +589,11 @@ write_report <- function(report, output_dir) {
     sprintf("- Median runtime (s): %.6f", report$r_pipeline$median_runtime_sec),
     sprintf("- Mean runtime (s): %.6f", report$r_pipeline$mean_runtime_sec),
     sprintf("- Optimizer: %s", report$r_pipeline$optimizer),
+    sprintf("- CG maxit: %s", as.character(report$r_pipeline$cg_maxit)),
     sprintf("- Kernel backend: %s", report$r_pipeline$kernel_backend),
     sprintf("- Median objective: %.6f", report$r_pipeline$median_objective),
+    sprintf("- Median accuracy: %s", as.character(r_accuracy)),
+    sprintf("- Median geodesic normalized mean: %s", as.character(r_geodesic)),
     sprintf("- Memory (bytes, optional): %s", as.character(report$r_pipeline$mem_bytes)),
     "",
     "## Backend Comparison",
@@ -463,9 +609,13 @@ write_report <- function(report, output_dir) {
     sprintf("- Runs: %s", as.character(if (is.null(report$pyfm_baseline$n_runs)) NA_integer_ else report$pyfm_baseline$n_runs)),
     sprintf("- Runtime (s): %s", as.character(report$comparison$pyfm_runtime_sec)),
     sprintf("- Objective: %s", as.character(report$comparison$pyfm_objective)),
+    sprintf("- Accuracy: %s", as.character(py_accuracy)),
+    sprintf("- Geodesic normalized mean: %s", as.character(py_geodesic)),
     "",
     "## Comparison",
     sprintf("- Runtime improvement ratio: %s", as.character(report$comparison$runtime_improvement_ratio)),
+    sprintf("- Accuracy delta (R - pyFM): %s", as.character(accuracy_delta)),
+    sprintf("- Geodesic normalized delta (R - pyFM): %s", as.character(geodesic_delta)),
     sprintf("- Runtime improvement sample median: %s", as.character(report$comparison$runtime_improvement_sample_median)),
     sprintf("- Runtime improvement sample q25/q75: %s / %s", as.character(report$comparison$runtime_improvement_sample_q25), as.character(report$comparison$runtime_improvement_sample_q75)),
     sprintf("- Runtime improvement bootstrap samples: %s", as.character(report$comparison$runtime_improvement_boot_n)),
@@ -487,7 +637,7 @@ write_report <- function(report, output_dir) {
 
   writeLines(lines, md_path)
 
-  list(rds = rds_path, markdown = md_path)
+  list(rds = rds_path, latest_rds = latest_rds_path, markdown = md_path)
 }
 
 main <- function() {
@@ -500,20 +650,23 @@ main <- function() {
   opts <- parse_args(commandArgs(trailingOnly = TRUE))
   pair_cfg <- benchmark_pairwise_problem_spec()
   seed_cfg <- benchmark_seed_registry()
+  pyfm_vendor <- release_pyfm_vendor_info(".")
 
   cpp_available <- exists("fm_match_solve_cg_cpp", mode = "function")
   active_backend <- if (cpp_available) "cpp" else "r"
 
   r_pipeline <- run_r_benchmark(
     n_runs = opts$r_runs,
-    optimizer = "cg",
+    optimizer = opts$r_optimizer,
+    cg_maxit = opts$r_cg_maxit,
     kernel_backend = active_backend,
     seed_offset = seed_cfg$pairwise_seed_offset,
     measure_memory = TRUE
   )
   r_baseline <- run_r_benchmark(
     n_runs = opts$r_runs,
-    optimizer = "cg",
+    optimizer = opts$r_optimizer,
+    cg_maxit = opts$r_cg_maxit,
     kernel_backend = "r",
     seed_offset = seed_cfg$pairwise_seed_offset,
     measure_memory = FALSE
@@ -530,6 +683,8 @@ main <- function() {
 
   py_runtime <- numeric_or_na(pyfm$runtime_sec)
   py_objective <- numeric_or_na(pyfm$objective)
+  py_accuracy <- numeric_or_na(pyfm$accuracy)
+  py_geodesic <- numeric_or_na(pyfm$geodesic_normalized_mean)
 
   baseline_available <- identical(pyfm$status, "ok") && is.finite(py_runtime)
 
@@ -575,6 +730,11 @@ main <- function() {
       r_version = as.character(getRversion()),
       platform = R.version$platform,
       git_commit = tryCatch(system2("git", c("rev-parse", "--short", "HEAD"), stdout = TRUE)[1], error = function(e) NA_character_),
+      pyfm_vendor_commit = pyfm_vendor$commit,
+      pyfm_vendor_branch = pyfm_vendor$branch,
+      pyfm_vendor_remote = pyfm_vendor$remote,
+      r_optimizer = opts$r_optimizer,
+      r_cg_maxit = as.integer(opts$r_cg_maxit),
       target_ratio = opts$target_ratio,
       stability_margin = opts$stability_margin,
       stability_boot = opts$stability_boot
@@ -598,6 +758,10 @@ main <- function() {
       baseline_available = baseline_available,
       pyfm_runtime_sec = py_runtime,
       pyfm_objective = py_objective,
+      pyfm_accuracy = py_accuracy,
+      pyfm_geodesic_normalized_mean = py_geodesic,
+      accuracy_delta = if (baseline_available && is.finite(py_accuracy)) r_pipeline$median_accuracy - py_accuracy else NA_real_,
+      geodesic_delta = if (baseline_available && is.finite(py_geodesic)) r_pipeline$median_geodesic_normalized_mean - py_geodesic else NA_real_,
       runtime_improvement_ratio = improvement,
       runtime_improvement_sample_median = assess$sample_median,
       runtime_improvement_sample_q25 = assess$sample_q25,
@@ -621,6 +785,7 @@ main <- function() {
 
   cat("Benchmark complete\n")
   cat("RDS:", outputs$rds, "\n")
+  cat("Latest RDS:", outputs$latest_rds, "\n")
   cat("Summary:", outputs$markdown, "\n")
   cat("Target met (raw):", as.character(report$comparison$target_met_raw), "\n")
   cat("Stable target met:", as.character(report$comparison$target_met_stable), "\n")

@@ -15,54 +15,82 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 library(fmapsR)
 set.seed(42)
 
-make_domain <- function(seed, n = 20, k = 6) {
-  set.seed(seed)
-  latent <- matrix(rnorm(n * 4), nrow = n, ncol = 4)
+make_domain <- function(n = 8, k = 4) {
+  op <- diag(seq_len(n))
   fm_basis(
-    fm_domain_generic(n_samples = n, data = latent, operator = diag(seq_len(n))),
+    fm_domain_generic(n_samples = n, operator = op),
     k = k,
     solver = "base",
     cache = FALSE
   )
 }
 
-d1 <- make_domain(101)
-d2 <- make_domain(102)
-d3 <- make_domain(103)
+random_orth <- function(k) {
+  qr.Q(qr(matrix(rnorm(k * k), nrow = k, ncol = k)))
+}
 
-desc1 <- d1$data
-desc2 <- d1$data + matrix(rnorm(length(d1$data), sd = 0.03), nrow = nrow(d1$data))
-desc3 <- d1$data + matrix(rnorm(length(d1$data), sd = 0.04), nrow = nrow(d1$data))
+make_noisy_cycle_network <- function(k = 4, noise_sd = 0.35) {
+  d1 <- make_domain(k = k)
+  d2 <- make_domain(k = k)
+  d3 <- make_domain(k = k)
+
+  X1 <- diag(k)
+  X2 <- random_orth(k)
+  X3 <- random_orth(k)
+
+  C12 <- X2 %*% t(X1) + matrix(rnorm(k * k, sd = noise_sd), nrow = k)
+  C23 <- X3 %*% t(X2) + matrix(rnorm(k * k, sd = noise_sd), nrow = k)
+  C31 <- X1 %*% t(X3) + matrix(rnorm(k * k, sd = noise_sd), nrow = k)
+
+  net <- fm_network(list(a = d1, b = d2, c = d3), directed = TRUE)
+  net <- fm_network_add_map(net, "a", "b", C12)
+  net <- fm_network_add_map(net, "b", "c", C23)
+  net <- fm_network_add_map(net, "c", "a", C31)
+  net
+}
+
+net <- make_noisy_cycle_network()
 ```
 
 ## End-to-end network sync workflow
 
-The core workflow below uses **10 lines** of API calls.
+This vignette starts after pairwise edge maps already exist. The synthetic maps below are intentionally inconsistent, so the synchronization report has something real to show.
 
 ```{r}
-fit12 <- fm_refine(fm_match(d1, d2, descriptors = list(source = desc1, target = desc2), optimizer = "cg", cg_maxit = 3), method = "icp", nit = 2)
-fit23 <- fm_refine(fm_match(d2, d3, descriptors = list(source = desc2, target = desc3), optimizer = "cg", cg_maxit = 3), method = "icp", nit = 2)
-fit31 <- fm_refine(fm_match(d3, d1, descriptors = list(source = desc3, target = desc1), optimizer = "cg", cg_maxit = 3), method = "icp", nit = 2)
-net <- fm_network(list(a = d1, b = d2, c = d3), directed = TRUE)
-net <- fm_network_add_map(net, "a", "b", fit12)
-net <- fm_network_add_map(net, "b", "c", fit23)
-net <- fm_network_add_map(net, "c", "a", fit31)
 synced <- fm_sync(net, mode = "cycle", nit = 10)
-consensus <- fm_consensus(synced, method = "latent_clb")
-fm_network_report(net, consensus$network)
+sync_report <- fm_network_report(synced)
+consensus <- fm_consensus(synced, method = "latent_clb", latent_nit = 8)
+
+sync_report
+
+c(
+  pre_cycle_median = synced$diagnostics$pre_cycle_median,
+  post_cycle_median = synced$diagnostics$post_cycle_median,
+  cycle_reduction_ratio = synced$diagnostics$cycle_reduction_ratio,
+  consensus_cycle_median = consensus$diagnostics$consensus_cycle_median,
+  consensus_confidence_median = consensus$uncertainty$summary$median
+)
 ```
 
 ## Notes
 
-- `fm_sync()` reduces cycle inconsistencies across maps.
-- `fm_consensus(method = "latent_clb")` refines synchronized maps with latent-basis optimization.
-- The same pattern scales to larger graph topologies.
+- `fm_sync()` is doing visible work here because the pre-sync cycle median starts above zero and the report compares it to the synchronized network.
+- `fm_consensus(method = "latent_clb")` keeps the network in a low-cycle-consistency regime and adds an uncertainty summary for the consensus edges.
+- If your inputs are raw descriptors rather than pre-fit maps, use `fm_network_match()` to build the initial network first.
 
-## Batch Controls for Larger Collections
+## Build the Edge Maps from Raw Descriptors
 
-For bigger runs, use `fm_network_match()` to batch edges and stream descriptors:
+For bigger runs, `fm_network_match()` batches the pairwise fits before synchronization:
 
 ```{r, eval = FALSE}
+d1 <- make_domain()
+d2 <- make_domain()
+d3 <- make_domain()
+
+desc1 <- matrix(rnorm(d1$n_samples * 4), nrow = d1$n_samples)
+desc2 <- desc1 + matrix(rnorm(length(desc1), sd = 0.03), nrow = nrow(desc1))
+desc3 <- desc1 + matrix(rnorm(length(desc1), sd = 0.04), nrow = nrow(desc1))
+
 net2 <- fm_network_match(
   domains = list(a = d1, b = d2, c = d3),
   descriptors = list(a = desc1, b = desc2, c = desc3),
