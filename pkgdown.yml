@@ -1,0 +1,13 @@
+pandoc: 3.8.3
+pkgdown: 2.2.1
+pkgdown_sha: ~
+articles:
+  getting-started: getting-started.html
+  multi-dataset-sync-consensus: multi-dataset-sync-consensus.html
+  non-shape-multidimensional-data: non-shape-multidimensional-data.html
+  pairwise-functional-maps: pairwise-functional-maps.html
+  shape-correspondence-posed-meshes: shape-correspondence-posed-meshes.html
+last_built: 2026-09-14T15:54Z
+urls:
+  reference: https://bbuchsbaum.github.io/fmapsR/reference
+  article: https://bbuchsbaum.github.io/fmapsR/articles

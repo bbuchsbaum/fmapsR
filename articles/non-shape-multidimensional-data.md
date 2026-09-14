@@ -1,0 +1,77 @@
+# Functional Maps for Non-Shape Multidimensional Data
+
+This example treats each sample as a multidimensional observation vector
+rather than a mesh vertex. The two domains below are different
+feature-space views of the same latent samples, with a known row
+permutation.
+
+``` r
+
+library(fmapsR)
+set.seed(123)
+
+make_view <- function(latent, weight, noise_sd = 0.02) {
+  scale(latent %*% weight + matrix(rnorm(nrow(latent) * ncol(weight), sd = noise_sd), nrow(latent)))
+}
+
+make_multidomain <- function(X, k = 8) {
+  operator <- fm_operator(X, method = "knn_laplacian", k = 7)
+
+  fm_basis(
+    fm_domain_generic(n_samples = nrow(X), data = X, operator = operator),
+    k = k,
+    solver = "base",
+    cache = FALSE
+  )
+}
+
+n <- 30
+p <- 12
+t <- seq(0, 2 * pi, length.out = n)
+latent <- cbind(sin(t), cos(t), sin(2 * t), cos(2 * t))
+
+W1 <- matrix(rnorm(ncol(latent) * p), ncol = p)
+W2 <- W1 + 0.05 * matrix(rnorm(ncol(latent) * p), ncol = p)
+
+truth <- c(4:n, 1:3)
+X_A <- make_view(latent, W1)
+X_B <- make_view(latent[truth, , drop = FALSE], W2)
+
+A <- make_multidomain(X_A)
+B <- make_multidomain(X_B)
+
+stopifnot(
+  all(dim(A$operator) == c(A$n_samples, A$n_samples)),
+  max(abs(A$operator - t(A$operator))) < 1e-8
+)
+
+fit <- fm_match(A, B, descriptors = list(source = X_A, target = X_B), penalties = list(descr = 1, lap = 1e-3, comm = 0.2), optimizer = "cg", cg_maxit = 6)
+fit <- fm_refine(fit, method = "icp", nit = 3)
+
+metrics <- fm_fit_metrics(fit, truth = truth)
+shared_signal <- latent[, 1] + 0.4 * latent[, 3]
+target_signal <- shared_signal[truth]
+signal_hat <- fm_transfer(fit, shared_signal)
+baseline_mse <- mean((mean(target_signal) - target_signal)^2)
+
+c(
+  exact_match_rate = mean(as_p2p(fit) == truth),
+  normalized_source_distance_error = metrics$geodesic$normalized_mean,
+  transfer_mse = mean((signal_hat - target_signal)^2),
+  baseline_mse = baseline_mse
+)
+#>                 exact_match_rate normalized_source_distance_error 
+#>                     1.0000000000                     0.0000000000 
+#>                     transfer_mse                     baseline_mse 
+#>                     0.0007412147                     0.5606666667
+```
+
+## Takeaway
+
+The API does not assume shapes. As long as you define:
+
+1.  Sample-wise descriptors (`n_samples x p`).
+2.  A basis-friendly operator (`n_samples x n_samples`).
+
+you can run the same match/refine/transfer pipeline on tabular or
+embedding-style data.

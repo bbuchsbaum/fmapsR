@@ -1,0 +1,125 @@
+# Pairwise Functional Maps
+
+``` r
+
+library(fmapsR)
+set.seed(7)
+
+make_path_adj <- function(n) {
+  A <- matrix(0, nrow = n, ncol = n)
+  A[cbind(1:(n - 1), 2:n)] <- 1
+  A[cbind(2:n, 1:(n - 1))] <- 1
+  A
+}
+
+make_pairwise_toy <- function(n = 24, shift = 2, k = 10, noise_sd = 0.005) {
+  A <- make_path_adj(n)
+  op <- diag(rowSums(A)) - A
+  theta <- seq(0, 1, length.out = n)
+
+  source_data <- cbind(
+    theta,
+    sin(2 * pi * theta),
+    cos(2 * pi * theta),
+    sin(4 * pi * theta),
+    cos(6 * pi * theta)
+  )
+
+  truth <- c((shift + 1):n, seq_len(shift))
+  target_data <- source_data[truth, , drop = FALSE] +
+    matrix(rnorm(n * ncol(source_data), sd = noise_sd), nrow = n)
+
+  source <- fm_basis(
+    fm_domain_generic(
+      n_samples = n,
+      data = source_data,
+      operator = op,
+      adjacency = A
+    ),
+    k = k,
+    solver = "base",
+    cache = FALSE
+  )
+
+  target <- fm_basis(
+    fm_domain_generic(
+      n_samples = n,
+      data = target_data,
+      operator = op[truth, truth],
+      adjacency = A[truth, truth]
+    ),
+    k = k,
+    solver = "base",
+    cache = FALSE
+  )
+
+  list(source = source, target = target, truth = truth)
+}
+
+toy <- make_pairwise_toy()
+source <- toy$source
+target <- toy$target
+truth <- toy$truth
+
+hks_source <- fm_descriptor_hks(source, n_times = 6)
+hks_target <- fm_descriptor_hks(target, n_times = 6)
+
+desc_source <- cbind(scale(source$data), hks_source)
+desc_target <- cbind(scale(target$data), hks_target)
+```
+
+## End-to-end pairwise workflow
+
+This toy pair has a real ground-truth correspondence (`truth`), so the
+metrics below are genuine validation rather than self-comparison.
+
+``` r
+
+fit <- fm_match(source, target, descriptors = list(source = desc_source, target = desc_target), optimizer = "cg", cg_maxit = 6)
+fit <- fm_refine(fit, method = "icp", nit = 5)
+mapped_signal <- fm_transfer(fit, source$data[, 1])
+p2p <- as_p2p(fit)
+fm_fit_matrix(fit)[1:3, 1:3]
+#>               [,1]          [,2]          [,3]
+#> [1,]  1.000000e+00 -6.783636e-14  6.059257e-15
+#> [2,] -3.800692e-15  1.000000e+00 -4.499379e-14
+#> [3,] -1.410624e-14  4.601072e-14  1.000000e+00
+c(
+  exact_match_rate = mean(p2p == truth),
+  transfer_mse = mean((mapped_signal - target$data[, 1])^2),
+  unique_source_matches = length(unique(p2p))
+)
+#>      exact_match_rate          transfer_mse unique_source_matches 
+#>          1.000000e+00          4.264834e-05          2.400000e+01
+```
+
+## Map Quality Metrics
+
+[`fm_fit_metrics()`](https://bbuchsbaum.github.io/fmapsR/reference/fm_fit_metrics.md)
+provides coverage by default. Here the domains also carry graph
+adjacency and a known target-to-source correspondence, so we can report
+both normalized source-distance error and a continuity proxy.
+
+``` r
+
+metrics <- fm_fit_metrics(fit, truth = truth)
+
+c(
+  coverage_ratio = metrics$coverage$ratio,
+  normalized_geodesic = metrics$geodesic$normalized_mean,
+  continuity_proxy = metrics$continuity$normalized_mean
+)
+#>      coverage_ratio normalized_geodesic    continuity_proxy 
+#>                1.00                0.00                0.12
+```
+
+## Why this interface is high-level
+
+- The same
+  [`fm_domain_generic()`](https://bbuchsbaum.github.io/fmapsR/reference/fm_domain_generic.md)
+  constructor can carry raw sample data, an operator, and adjacency for
+  evaluation.
+- Basis construction, matching, refinement, transfer, and pointwise
+  conversion stay as separate steps.
+- The quality helper can combine coverage, ground-truth distance error,
+  and continuity when the inputs provide the needed structure.
