@@ -24,3 +24,6 @@ tmp-*.out
 .omc/
 .covr_result.rds
 .rcmdcheck_result.rds
+.DS_Store
+.albersdown.bak/
+Rplots.pdf

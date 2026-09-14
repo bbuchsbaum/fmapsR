@@ -13,3 +13,7 @@
 ^\.omc($|/)
 ^\.rcmdcheck_result\.rds$
 ^\.covr_result\.rds$
+^\.albersdown\.bak($|/)
+^pkgdown($|/)
+^prddocs($|/)
+^tests/testthat/Rplots\.pdf$
