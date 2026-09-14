@@ -131,17 +131,27 @@ inline arma::uvec nearest_neighbor_index_cpp(
   if (reference.n_cols != query.n_cols) {
     Rcpp::stop("Embedding dimensions must match for nearest-neighbor lookup");
   }
+  if (reference.n_rows == 0 || reference.n_cols == 0 ||
+      !reference.is_finite() || !query.is_finite()) {
+    Rcpp::stop("Nearest-neighbor lookup requires finite embeddings and a non-empty reference");
+  }
 
   arma::uvec out(query.n_rows);
-  const arma::vec ref_norm = arma::sum(reference % reference, 1);
-  const arma::vec query_norm = arma::sum(query % query, 1);
+  const arma::rowvec ref_norm = arma::sum(reference % reference, 1).t();
+  const arma::uword block_size = 256;
 
-  arma::mat d2 = -2.0 * (query * reference.t());
-  d2.each_col() += query_norm;
-  d2.each_row() += ref_norm.t();
+  for (arma::uword start = 0; start < query.n_rows; start += block_size) {
+    const arma::uword end = std::min(start + block_size, query.n_rows);
+    const arma::mat qblock = query.rows(start, end - 1);
+    const arma::vec qnorm = arma::sum(qblock % qblock, 1);
 
-  for (arma::uword qi = 0; qi < query.n_rows; ++qi) {
-    out[qi] = d2.row(qi).index_min();
+    arma::mat d2 = -2.0 * (qblock * reference.t());
+    d2.each_col() += qnorm;
+    d2.each_row() += ref_norm;
+
+    for (arma::uword qi = 0; qi < qblock.n_rows; ++qi) {
+      out[start + qi] = d2.row(qi).index_min();
+    }
   }
 
   return out;

@@ -111,6 +111,124 @@ make_vignette_noisy_cycle_network <- function(k = 4, noise_sd = 0.35, seed = 42)
   net
 }
 
+test_that("shape vignette example recovers the posed-mesh correspondence", {
+  pair <- fm_example_mesh_pair()
+  op <- fm_operator_mesh(
+    pair$source$vertices,
+    pair$source$faces,
+    method = "face_graph",
+    weight_mode = "binary"
+  )
+
+  source <- fm_basis(
+    fm_domain_mesh(pair$source$vertices, pair$source$faces, operator = op),
+    k = 24,
+    solver = "rspectra",
+    cache = FALSE
+  )
+  target <- fm_basis(
+    fm_domain_mesh(pair$target$vertices, pair$target$faces, operator = op),
+    k = 24,
+    solver = "rspectra",
+    cache = FALSE
+  )
+
+  desc_source <- cbind(
+    scale(pair$source$descriptors),
+    fm_descriptor_hks(source, n_times = 8, landmarks = pair$landmarks)
+  )
+  desc_target <- cbind(
+    scale(pair$target$descriptors),
+    fm_descriptor_hks(target, n_times = 8, landmarks = pair$landmarks)
+  )
+
+  fit <- fm_match(
+    source,
+    target,
+    descriptors = list(source = desc_source, target = desc_target),
+    penalties = list(descr = 1, lap = 1e-4, comm = 0.01),
+    init = "identity",
+    optimizer = "cg",
+    cg_maxit = 8
+  )
+  fit <- fm_refine(fit, method = "icp", nit = 4)
+
+  landmark_vertex <- pair$source$vertices[pair$landmarks[[3]], ]
+  signal_delta <- sweep(pair$source$vertices, 2, landmark_vertex, "-")
+  signal <- exp(-rowSums(signal_delta^2) / (2 * 0.18^2))
+  signal_hat <- fm_transfer(fit, signal)
+  metrics <- fm_fit_metrics(fit, truth = pair$truth)
+
+  expect_identical(mean(as_p2p(fit) == pair$truth), 1)
+  expect_identical(metrics$coverage$ratio, 1)
+  expect_identical(metrics$geodesic$normalized_mean, 0)
+  expect_lte(mean((signal_hat - signal[pair$truth])^2), 0.01)
+})
+
+test_that("shape vignette real TOSCA example clears a smooth-transfer quality floor", {
+  skip_on_cran()
+  skip_if_not_installed("RSpectra")
+
+  pair <- fm_example_mesh_pair("tosca_cat10")
+  op_source <- fm_operator_mesh(
+    pair$source$vertices,
+    pair$source$faces,
+    method = "cotangent"
+  )
+  op_target <- fm_operator_mesh(
+    pair$target$vertices,
+    pair$target$faces,
+    method = "cotangent"
+  )
+
+  source <- fm_basis(
+    fm_domain_mesh(pair$source$vertices, pair$source$faces, operator = op_source),
+    k = 30,
+    solver = "rspectra",
+    cache = FALSE
+  )
+  target <- fm_basis(
+    fm_domain_mesh(pair$target$vertices, pair$target$faces, operator = op_target),
+    k = 30,
+    solver = "rspectra",
+    cache = FALSE
+  )
+
+  desc_source <- fm_descriptor_hks(source, n_times = 6, landmarks = pair$landmarks)
+  desc_target <- fm_descriptor_hks(target, n_times = 6, landmarks = pair$landmarks)
+
+  fit <- fm_match(
+    source,
+    target,
+    descriptors = list(source = desc_source, target = desc_target),
+    penalties = list(descr = 1, lap = 1e-4, comm = 0.02),
+    init = "identity",
+    optimizer = "cg",
+    cg_maxit = 300,
+    cg_tol = 1e-8
+  )
+  expect_identical(fit$diagnostics$convergence, 0L)
+  fit <- fm_refine(fit, method = "icp", nit = 1)
+
+  source_center <- pair$source$vertices[pair$landmarks[[5]], ]
+  source_signal <- exp(-rowSums(sweep(pair$source$vertices, 2, source_center, "-")^2) / (2 * 20^2))
+  target_signal <- source_signal[pair$truth]
+  signal_hat <- fm_transfer(fit, source_signal)
+
+  overlap <- function(frac) {
+    top_n <- max(50L, floor(length(target_signal) * frac))
+    length(intersect(
+      order(signal_hat, decreasing = TRUE)[seq_len(top_n)],
+      order(target_signal, decreasing = TRUE)[seq_len(top_n)]
+    )) / top_n
+  }
+
+  expect_gte(stats::cor(signal_hat, target_signal), 0.95)
+  expect_gte(overlap(0.05), 0.95)
+  expect_gte(overlap(0.10), 0.90)
+  expect_lte(mean((signal_hat - target_signal)^2), 0.005)
+})
+
 test_that("pairwise vignette toy reports real ground-truth metrics", {
   toy <- make_vignette_pairwise_toy()
   desc_source <- cbind(scale(toy$source$data), fm_descriptor_hks(toy$source, n_times = 6))

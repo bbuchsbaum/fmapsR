@@ -1,7 +1,21 @@
 ---
-title: "Functional Maps for Non-Shape Multidimensional Data"
-output: rmarkdown::html_vignette
-vignette: >
+title: Functional Maps for Non-Shape Multidimensional Data
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2.0
+    css: albers.css
+    includes:
+      in_header: albers-header.html
+params:
+  family: teal
+  preset: homage
+resource_files:
+- albers.css
+- albers.js
+- albers-header.html
+
+vignette: |
   %\VignetteIndexEntry{Functional Maps for Non-Shape Multidimensional Data}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}

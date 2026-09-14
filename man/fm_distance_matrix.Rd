@@ -17,3 +17,10 @@ Dense distance matrix.
 \description{
 Build a Sample Distance Matrix for a Domain
 }
+\details{
+`"auto"` uses graph distances for meshes with topology and graphs,
+  and Euclidean distances for point clouds. Mesh faces supply unit-length
+  edges, so these distances count edge hops, not physical surface length.
+  Explicit adjacency entries are treated as edge lengths. The current dense
+  shortest-path implementation supports at most 2000 samples.
+}

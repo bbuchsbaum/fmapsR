@@ -16,6 +16,7 @@ fm_match(
   cg_maxit = NULL,
   kernel_backend = c("auto", "r", "cpp"),
   descriptor_batch_size = NULL,
+  compute_objective = TRUE,
   trace = FALSE
 )
 }
@@ -44,6 +45,10 @@ fm_match(
 \item{descriptor_batch_size}{Optional descriptor chunk size for commutativity
 operator streaming. Use smaller values to reduce peak memory when many
 descriptors are used.}
+
+\item{compute_objective}{Whether to compute the final objective breakdown
+after fitting. Disable to skip post-hoc diagnostics when only the map is
+needed.}
 
 \item{trace}{Whether to print optimizer traces.}
 }

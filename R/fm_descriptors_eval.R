@@ -262,37 +262,77 @@ fm_descriptors <- function(domain, method = c("hks", "wks"), ...) {
   )
 }
 
-mesh_face_adjacency <- function(n, faces) {
+mesh_edge_pairs <- function(faces, n = NULL) {
   if (is.null(faces)) {
     return(NULL)
   }
+
   f <- as.matrix(faces)
   if (ncol(f) != 3L) {
     return(NULL)
   }
 
-  A <- matrix(0, nrow = n, ncol = n)
-  for (r in seq_len(nrow(f))) {
-    tri <- as.integer(f[r, ])
-    tri <- tri[tri >= 1L & tri <= n]
-    if (length(tri) != 3L) {
-      next
-    }
-    A[tri[1], tri[2]] <- 1
-    A[tri[2], tri[1]] <- 1
-    A[tri[1], tri[3]] <- 1
-    A[tri[3], tri[1]] <- 1
-    A[tri[2], tri[3]] <- 1
-    A[tri[3], tri[2]] <- 1
+  f <- matrix(as.integer(f), ncol = 3L)
+  if (!is.null(n)) {
+    keep <- f[, 1] >= 1L & f[, 1] <= n &
+      f[, 2] >= 1L & f[, 2] <= n &
+      f[, 3] >= 1L & f[, 3] <= n
+    f <- f[keep, , drop = FALSE]
   }
-  A
+  if (nrow(f) == 0L) {
+    return(matrix(integer(0), ncol = 2L))
+  }
+
+  edges <- rbind(
+    f[, c(1, 2), drop = FALSE],
+    f[, c(2, 3), drop = FALSE],
+    f[, c(1, 3), drop = FALSE]
+  )
+  edges <- edges[edges[, 1] != edges[, 2], , drop = FALSE]
+  if (nrow(edges) == 0L) {
+    return(matrix(integer(0), ncol = 2L))
+  }
+
+  edges <- cbind(
+    pmin(edges[, 1], edges[, 2]),
+    pmax(edges[, 1], edges[, 2])
+  )
+  unique(edges)
+}
+
+mesh_face_adjacency <- function(n, faces) {
+  if (is.null(faces)) {
+    return(NULL)
+  }
+  edges <- mesh_edge_pairs(faces, n = n)
+  if (is.null(edges)) {
+    return(NULL)
+  }
+  if (nrow(edges) == 0L) {
+    return(Matrix::sparseMatrix(i = integer(0), j = integer(0), x = numeric(0), dims = c(n, n)))
+  }
+
+  Matrix::sparseMatrix(
+    i = c(edges[, 1], edges[, 2]),
+    j = c(edges[, 2], edges[, 1]),
+    x = 1,
+    dims = c(n, n)
+  )
 }
 
 graph_shortest_paths <- function(adjacency) {
-  A <- as.matrix(adjacency)
-  if (nrow(A) != ncol(A)) {
+  if (nrow(adjacency) != ncol(adjacency)) {
     stop("`adjacency` must be square", call. = FALSE)
   }
+
+  if (nrow(adjacency) > 2000L) {
+    stop(
+      "Graph shortest paths are too large for the current dense implementation.",
+      call. = FALSE
+    )
+  }
+
+  A <- as.matrix(adjacency)
 
   n <- nrow(A)
   D <- matrix(Inf, nrow = n, ncol = n)
@@ -303,6 +343,7 @@ graph_shortest_paths <- function(adjacency) {
     D[nz] <- A[nz]
     D[A > 0 & A < D] <- A[A > 0 & A < D]
   }
+  diag(D) <- 0
 
   for (k in seq_len(n)) {
     D <- pmin(D, outer(D[, k], D[k, ], "+"))
@@ -314,6 +355,12 @@ graph_shortest_paths <- function(adjacency) {
 #'
 #' @param domain `fm_domain` object.
 #' @param method Distance strategy: `"auto"`, `"euclidean"`, or `"graph_shortest"`.
+#'
+#' @details `"auto"` uses graph distances for meshes with topology and graphs,
+#'   and Euclidean distances for point clouds. Mesh faces supply unit-length
+#'   edges, so these distances count edge hops, not physical surface length.
+#'   Explicit adjacency entries are treated as edge lengths. The current dense
+#'   shortest-path implementation supports at most 2000 samples.
 #'
 #' @return Dense distance matrix.
 #' @export
@@ -327,7 +374,7 @@ fm_distance_matrix <- function(domain, method = c("auto", "euclidean", "graph_sh
   if (method == "auto") {
     method <- switch(
       domain$type,
-      mesh = "euclidean",
+      mesh = if (!is.null(domain$adjacency) || !is.null(domain$data$faces)) "graph_shortest" else "euclidean",
       pointcloud = "euclidean",
       graph = "graph_shortest",
       if (!is.null(domain$adjacency)) "graph_shortest" else "euclidean"
@@ -336,6 +383,9 @@ fm_distance_matrix <- function(domain, method = c("auto", "euclidean", "graph_sh
 
   if (method == "graph_shortest") {
     A <- domain$adjacency %||% domain$data$adjacency
+    if (is.null(A) && identical(domain$type, "mesh")) {
+      A <- mesh_face_adjacency(domain$n_samples, domain$data$faces)
+    }
     if (is.null(A)) {
       stop("No adjacency available for graph shortest-path distance", call. = FALSE)
     }
@@ -523,7 +573,7 @@ auto_target_adjacency <- function(domain) {
   }
 
   if (!is.null(domain$adjacency)) {
-    return(as.matrix(domain$adjacency))
+    return(domain$adjacency)
   }
 
   if (identical(domain$type, "mesh")) {

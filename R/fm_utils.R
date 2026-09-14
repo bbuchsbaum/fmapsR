@@ -15,23 +15,45 @@ nearest_neighbor_index <- function(reference, query) {
   if (ncol(reference) != ncol(query)) {
     stop("Embedding dimensions must match for nearest-neighbor lookup", call. = FALSE)
   }
-
-  if ((nrow(reference) * nrow(query)) > 5e7) {
-    stop(
-      "Pointwise conversion is too large for dense nearest-neighbor search. Add an ANN backend.",
-      call. = FALSE
-    )
+  if (!is.numeric(reference) || !is.numeric(query) || nrow(reference) == 0L ||
+      ncol(reference) == 0L || any(!is.finite(reference)) || any(!is.finite(query))) {
+    stop("Nearest-neighbor lookup requires finite numeric embeddings and a non-empty reference", call. = FALSE)
+  }
+  if (nrow(query) == 0L) {
+    return(integer(0))
   }
 
   if (exists("fm_nearest_neighbor_index_cpp", mode = "function")) {
     return(as.integer(fm_nearest_neighbor_index_cpp(reference, query)))
   }
 
-  ref_norm <- rowSums(reference * reference)
-  query_norm <- rowSums(query * query)
-  d2 <- outer(query_norm, ref_norm, "+") - 2 * (query %*% t(reference))
+  nearest_neighbor_index_r(reference, query)
+}
 
-  max.col(-d2)
+nearest_neighbor_index_r <- function(reference, query) {
+  if (nrow(query) == 0L) return(integer(0))
+
+  if ((nrow(reference) * nrow(query)) > 2e8) {
+    stop(
+      "Pointwise conversion is too large for the current fallback nearest-neighbor path.",
+      call. = FALSE
+    )
+  }
+
+  ref_norm <- rowSums(reference * reference)
+  block_size <- 256L
+  out <- integer(nrow(query))
+
+  for (start in seq.int(1L, nrow(query), by = block_size)) {
+    stop_idx <- min(start + block_size - 1L, nrow(query))
+    idx <- start:stop_idx
+    query_block <- query[idx, , drop = FALSE]
+    query_norm <- rowSums(query_block * query_block)
+    d2 <- outer(query_norm, ref_norm, "+") - 2 * (query_block %*% t(reference))
+    out[idx] <- max.col(-d2, ties.method = "first")
+  }
+
+  out
 }
 
 #' Convert Functional Map to Pointwise Map

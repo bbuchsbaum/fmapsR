@@ -9,6 +9,7 @@ articles:
     navbar: Articles
     contents:
       - getting-started
+      - shape-correspondence-posed-meshes
       - pairwise-functional-maps
       - multi-dataset-sync-consensus
       - non-shape-multidimensional-data

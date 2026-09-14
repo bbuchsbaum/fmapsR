@@ -1,7 +1,21 @@
 ---
-title: "Getting Started with fmapsR"
-output: rmarkdown::html_vignette
-vignette: >
+title: Getting Started with fmapsR
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2.0
+    css: albers.css
+    includes:
+      in_header: albers-header.html
+params:
+  family: teal
+  preset: homage
+resource_files:
+- albers.css
+- albers.js
+- albers-header.html
+
+vignette: |
   %\VignetteIndexEntry{Getting Started with fmapsR}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
@@ -113,8 +127,9 @@ c(
 
 ## Recommended sequence
 
-1. `pairwise-functional-maps`: the same workflow in more detail, including continuity and transfer diagnostics.
-2. `multi-dataset-sync-consensus`: how to combine pairwise maps into a network and reduce cycle inconsistency.
-3. `non-shape-multidimensional-data`: how to use the same API on generic observation matrices rather than meshes.
+1. `shape-correspondence-posed-meshes`: a visual mesh example with transferred heatmaps across two poses.
+2. `pairwise-functional-maps`: the same workflow in more detail, including continuity and transfer diagnostics.
+3. `multi-dataset-sync-consensus`: how to combine pairwise maps into a network and reduce cycle inconsistency.
+4. `non-shape-multidimensional-data`: how to use the same API on generic observation matrices rather than meshes.
 
 If you only remember one object transition, make it this one: `fm_basis()` gives you domains with eigenvectors, and `fm_match()` turns those into an `fm_fit` that you can refine, inspect, or apply.

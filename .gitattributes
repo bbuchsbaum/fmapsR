@@ -1,0 +1,3 @@
+# Preserve the original line endings of the vendored ASCII mesh files.
+inst/extdata/tosca_cats/*.vert -text whitespace=cr-at-eol
+inst/extdata/tosca_cats/*.tri -text whitespace=cr-at-eol

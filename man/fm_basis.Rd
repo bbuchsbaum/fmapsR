@@ -27,7 +27,10 @@ fm_basis(
 
 \item{seed}{Optional RNG seed for reproducibility.}
 
-\item{control}{Optional solver controls passed to RSpectra.}
+\item{control}{Optional arguments passed to `RSpectra::eigs_sym`, for example
+`list(sigma = 0, opts = list(ncv = 40))`. When `which` is omitted,
+mesh operators can supply shift-invert defaults. An explicit `which`
+disables these defaults. Dense fallback preserves shift-invert selection.}
 }
 \value{
 Updated `fm_domain` object with populated `basis`.

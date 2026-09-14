@@ -257,3 +257,7 @@ test_that("auto adjacency and fit metric entry points cover fallback branches", 
 
   expect_error(fm_fit_metrics(list()), "`fit` must inherit")
 })
+test_that("shortest paths reject oversized sparse graphs before materializing them", {
+  expect_error(graph_shortest_paths(Matrix::Diagonal(100000)), "too large")
+  expect_equal(graph_shortest_paths(matrix(c(5, 2, 2, 5), 2)), matrix(c(0, 2, 2, 0), 2))
+})

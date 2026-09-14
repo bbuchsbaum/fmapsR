@@ -81,14 +81,16 @@ test_that("fm_transfer supports reverse direction with matching dimensions", {
   expect_equal(as.numeric(y_rev), as.numeric(expected), tolerance = 1e-8)
 })
 
-test_that("as_p2p guards against oversized dense nearest-neighbor problems", {
+test_that("as_p2p handles larger nearest-neighbor problems when native kernel is available", {
   fit <- make_identity_fit(n = 8, k = 4)
   fit$source$n_samples <- 10000L
   fit$target$n_samples <- 6000L
   fit$source$basis$vectors <- matrix(0, nrow = 10000, ncol = 4)
   fit$target$basis$vectors <- matrix(0, nrow = 6000, ncol = 4)
 
-  expect_error(as_p2p(fit), "too large for dense nearest-neighbor search")
+  p2p <- as_p2p(fit)
+  expect_type(p2p, "integer")
+  expect_length(p2p, 6000L)
 })
 
 test_that("native nearest-neighbor kernel matches dense distance argmin", {
@@ -105,4 +107,18 @@ test_that("native nearest-neighbor kernel matches dense distance argmin", {
   nn_cpp <- fm_nearest_neighbor_index_cpp(reference, query)
   expect_equal(as.integer(nn_cpp), as.integer(expected))
   expect_equal(nearest_neighbor_index(reference, query), as.integer(expected))
+})
+
+test_that("blocked nearest neighbors agree with direct distances across block boundaries", {
+  set.seed(43)
+  reference <- matrix(rnorm(60), 20, 3)
+  reference <- rbind(reference, reference[1, ])
+  query <- rbind(reference[1, ], matrix(rnorm(900), 300, 3))
+  expected <- apply(query, 1, function(q) which.min(rowSums(sweep(reference, 2, q)^2)))
+  expect_identical(nearest_neighbor_index(reference, query), expected)
+  expect_identical(nearest_neighbor_index_r(reference, query), expected)
+  expect_identical(nearest_neighbor_index(reference, query[FALSE, ]), integer())
+  expect_identical(nearest_neighbor_index_r(reference, query[FALSE, ]), integer())
+  expect_error(nearest_neighbor_index(reference[FALSE, ], query), "non-empty")
+  expect_error(nearest_neighbor_index(reference, query * NA), "finite")
 })

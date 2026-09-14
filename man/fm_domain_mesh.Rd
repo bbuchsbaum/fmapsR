@@ -4,12 +4,16 @@
 \alias{fm_domain_mesh}
 \title{Mesh Domain Adapter}
 \usage{
-fm_domain_mesh(vertices, faces = NULL, ...)
+fm_domain_mesh(vertices, faces = NULL, measure = NULL, operator = NULL, ...)
 }
 \arguments{
 \item{vertices}{Vertex matrix.}
 
 \item{faces}{Optional face index matrix.}
+
+\item{measure}{Optional sample measure weights.}
+
+\item{operator}{Optional mesh operator.}
 
 \item{...}{Passed to [fm_new_domain()].}
 }

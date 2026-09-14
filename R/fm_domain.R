@@ -202,11 +202,13 @@ fm_domain <- function(data = NULL, type = c("generic", "mesh", "pointcloud", "gr
 #'
 #' @param vertices Vertex matrix.
 #' @param faces Optional face index matrix.
+#' @param measure Optional sample measure weights.
+#' @param operator Optional mesh operator.
 #' @param ... Passed to [fm_new_domain()].
 #'
 #' @return An `fm_domain_mesh` object.
 #' @export
-fm_domain_mesh <- function(vertices, faces = NULL, ...) {
+fm_domain_mesh <- function(vertices, faces = NULL, measure = NULL, operator = NULL, ...) {
   if (!is.matrix(vertices)) {
     stop("`vertices` must be a matrix", call. = FALSE)
   }
@@ -215,10 +217,16 @@ fm_domain_mesh <- function(vertices, faces = NULL, ...) {
     stop("`faces` must be a matrix when provided", call. = FALSE)
   }
 
+  if (is.null(measure) && !is.null(operator)) {
+    measure <- attr(operator, "fm_measure_weights", exact = TRUE)
+  }
+
   fm_new_domain(
     type = "mesh",
     n_samples = nrow(vertices),
     data = list(vertices = vertices, faces = faces),
+    measure = measure,
+    operator = operator,
     ...
   )
 }
